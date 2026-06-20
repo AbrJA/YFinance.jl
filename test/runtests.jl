@@ -232,7 +232,7 @@ using Test
     @testset "QuoteSummary" begin
         sleep(1)
         ta = get_quoteSummary("AAPL")
-        @test :price in keys(ta)
+        @test "price" in keys(ta)
 
         @test haskey(get_calendar_events(ta), "earnings_dates")
         @test haskey(get_earnings_estimates(ta), "estimate")

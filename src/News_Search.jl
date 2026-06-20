@@ -113,17 +113,17 @@ function search_news(query::String; lang::String="en-us")::YahooNews
     params = Dict("q" => query, "lang" => lang_code, "region" => region)
     url = _build_url("https://query2.finance.yahoo.com/v1/finance/search", params)
     resp = _yahoo_get(url, query; timeout=10, throw_error=true)
-    parsed = JSON3.read(resp.body)
-    news_data = get(parsed, :news, [])
+    parsed = JSON.parse(String(copy(resp.body)))
+    news_data = get(parsed, "news", [])
 
     items = NewsItem[]
     sizehint!(items, length(news_data))
     for article in news_data
-        title = string(get(article, :title, ""))
-        publisher = string(get(article, :publisher, ""))
-        link = string(get(article, :link, ""))
-        ts = unix2datetime(get(article, :providerPublishTime, 0))
-        symbols = haskey(article, :relatedTickers) ? String.(article.relatedTickers) : String[]
+        title = string(get(article, "title", ""))
+        publisher = string(get(article, "publisher", ""))
+        link = string(get(article, "link", ""))
+        ts = unix2datetime(get(article, "providerPublishTime", 0))
+        symbols = haskey(article, "relatedTickers") ? String.(article["relatedTickers"]) : String[]
         push!(items, NewsItem(title, publisher, link, ts, symbols))
     end
     return YahooNews(items)

@@ -4,7 +4,7 @@ module YFinance
     using OrderedCollections
     using Dates
     using Downloads
-    using JSON3
+    using JSON
     using PrecompileTools: @setup_workload, @compile_workload
 
     # Public API — Data retrieval

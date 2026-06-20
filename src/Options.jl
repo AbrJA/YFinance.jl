@@ -80,9 +80,9 @@ function get_Options(symbol::String; throw_error=false, expiration_date::Union{D
     resp = _yahoo_get(url, symbol; timeout=10, throw_error=throw_error)
     isnothing(resp) && return OrderedCollections.OrderedDict()
 
-    res = JSON3.read(resp.body)
-    puts = res.optionChain.result[1].options[1].puts
-    calls = res.optionChain.result[1].options[1].calls
+    res = JSON.parse(String(copy(resp.body)))
+    puts = res["optionChain"]["result"][1]["options"][1]["puts"]
+    calls = res["optionChain"]["result"][1]["options"][1]["calls"]
     res_p = OrderedCollections.OrderedDict(
         "contractSymbol"=> [],
         "strike"=> [],

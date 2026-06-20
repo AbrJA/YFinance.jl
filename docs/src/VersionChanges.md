@@ -1,3 +1,30 @@
+!!! info "v0.2.0"
+    ## Breaking Changes
+    * Replaced `HTTP.jl` with `Downloads.jl` (Julia stdlib). No more external HTTP dependency.
+    * Removed `Random` dependency (`rand` is in Base).
+    * `YahooSearchItem` and `NewsItem` are now immutable structs.
+    * `YahooSearch` and `YahooNews` now implement `AbstractVector` directly (no longer parametric).
+    * Minimum Julia version bumped to 1.10.
+
+    ## Architecture Redesign
+    * Centralized networking in `src/network.jl` with `YahooSession` singleton
+    * **Connection pooling** — persistent `Downloads.Downloader` reuses TCP connections
+    * **Rate limiting** — automatic 300ms throttle between requests
+    * **Retry with exponential backoff** — handles 429, 401/403, and network errors
+    * **Thread-safe session** — `ReentrantLock`-protected cookie/crumb state
+    * **Auto-renewal** — session automatically refreshes on auth expiration
+    * All endpoints use standardized `_yahoo_get()` for consistent error handling
+
+    ## Bug Fixes
+    * Fixed typo in `_process_response` error message (`$symbo` → `$symbol`)
+    * `get_prices` now gracefully handles responses with missing timestamp data
+    * Empty query parameters no longer produce malformed URLs
+
+    ## Improvements
+    * Clean module exports organized by category
+    * Enhanced test suite (120 tests covering unit tests, input validation, edge cases)
+    * `get_all_symbols` properly strips JSON array formatting
+
 !!! info "v0.1.13"
     ## Compat
     * get_Option allows choosing an expiration_date ([#35](https://github.com/eohne/YFinance.jl/issues/35))
@@ -44,13 +71,13 @@
 
 !!! info "v0.1.5"
     ## Bug Fix
-    * Implemented Cookies and Crumbs to fix get_quoteSummary() and all functions depending on it ([#14](https://github.com/eohne/YFinance.jl/issues/14)) 
-    
+    * Implemented Cookies and Crumbs to fix get_quoteSummary() and all functions depending on it ([#14](https://github.com/eohne/YFinance.jl/issues/14))
+
 
 !!! info "v0.1.4"
     ## Bug Fix
-    * get_prices now returns dictionaries containing price vectors of type Array{Float64} rather than Array{ Union{Nothing,Float64}} ([#7](https://github.com/eohne/YFinance.jl/issues/7)) 
-    
+    * get_prices now returns dictionaries containing price vectors of type Array{Float64} rather than Array{ Union{Nothing,Float64}} ([#7](https://github.com/eohne/YFinance.jl/issues/7))
+
     ## Improvements
     * get_prices now runs faster than before.
 
@@ -66,12 +93,12 @@
 
 !!! info "v0.1.3"
     ## Bug Fix
-    * get_prices would error when `autoadjust=true` for some tickers when Yahoo returns nothing for some observations in the price time series. The update now does not error in this cases and returns `NaN` for the missing datapoints. `NaN` is used instead of `Missing` because of performance improvements and the ability to integrate `YFinance.jl` with `TimeSeries.jl`. ([#5](https://github.com/eohne/YFinance.jl/issues/5)) 
+    * get_prices would error when `autoadjust=true` for some tickers when Yahoo returns nothing for some observations in the price time series. The update now does not error in this cases and returns `NaN` for the missing datapoints. `NaN` is used instead of `Missing` because of performance improvements and the ability to integrate `YFinance.jl` with `TimeSeries.jl`. ([#5](https://github.com/eohne/YFinance.jl/issues/5))
        - Thank you [RaSi96](https://github.com/RaSi96) for reporting this bug and helping me sort it out!
 
     ## Docs
     * Improved documentation for get_prices ([#5](https://github.com/eohne/YFinance.jl/issues/5))
-       - When the `range` keyword is used instead of `startdt` and `enddt` the specified interval is not observed by Yahoo at longer ranges. To enforce the specified `interval` use `startdt` and `enddt` instead. 
+       - When the `range` keyword is used instead of `startdt` and `enddt` the specified interval is not observed by Yahoo at longer ranges. To enforce the specified `interval` use `startdt` and `enddt` instead.
        - Data points that yahoo returns as `nothing` are returned as `NaN`. It seems like Yahoo thinks it should have price information for these timestamps but does not have them and thus returns `nothing`.
 
     ## Other
@@ -84,7 +111,7 @@
       - Should be non breaking as all functions that work for `Base.Dict` also work for `OrderedCollections.OrderedDict`
     * Allow the setting of HTTP proxies (through `HTTP.jl`). Also allows for secured HTTP proxies with a username and password
       - Default is no proxy so change is non breaking
-      
+
     ## Fixes:
     * `get_Fundamentals()` does now return a timestamp
 

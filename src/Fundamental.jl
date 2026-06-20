@@ -474,33 +474,33 @@ function get_Fundamental(symbol::AbstractString, item::AbstractString,interval::
     url = _build_url("https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/$(symbol)", q)
     resp = _yahoo_get(url, symbol; timeout=10, throw_error=throw_error)
     isnothing(resp) && return OrderedCollections.OrderedDict()
-    res = JSON3.read(resp.body).timeseries.result
+    res = JSON.parse(String(copy(resp.body)))["timeseries"]["result"]
     if entire_statement
         result = OrderedCollections.OrderedDict{String,Any}()
         for i in eachindex(res)
             #continue if there is no data for this element
-            if !in(:timestamp,keys(res[i]))
+            if !haskey(res[i], "timestamp")
                 continue
             end
-            timestamp = unix2datetime.(res[i].timestamp)
-            k = res[i].meta.type[1]
+            timestamp = unix2datetime.(res[i]["timestamp"])
+            k = res[i]["meta"]["type"][1]
             element_result = []
-            for j in values(res[i][Symbol(k)])
-                push!(element_result,j.reportedValue.raw)
+            for j in values(res[i][k])
+                push!(element_result, j["reportedValue"]["raw"])
             end
             result["timestamp"] = timestamp
-            result[replace(k,r"^(quarterly|annual|monthly)"=>"")] = element_result
+            result[replace(k, r"^(quarterly|annual|monthly)"=>"")] = element_result
         end
     else
-        if !in(Symbol(query_items),keys(res[1]))
+        if !haskey(res[1], query_items)
             error("There is no data available for this item.")
         else
             value = []
-            for i in values(res[1][Symbol(query_items)])
-                push!(value, i.reportedValue.raw)
+            for i in values(res[1][query_items])
+                push!(value, i["reportedValue"]["raw"])
             end
 
-            result = OrderedCollections.OrderedDict("timestamp" => unix2datetime.(res[1].timestamp),item =>value)
+            result = OrderedCollections.OrderedDict("timestamp" => unix2datetime.(res[1]["timestamp"]), item => value)
         end
     end
     return result

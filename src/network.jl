@@ -359,11 +359,11 @@ Parses Yahoo Finance error response bodies. Handles both JSON and plain-text.
 """
 function _parse_yahoo_error(body::Vector{UInt8}, status::Int, symbol::String="")::String
     try
-        yahoo_error = JSON3.read(body)
-        if haskey(yahoo_error, :finance)
-            return string(yahoo_error.finance.error.description)
-        elseif haskey(yahoo_error, :chart) && haskey(yahoo_error.chart, :error)
-            desc = string(yahoo_error.chart.error.description)
+        yahoo_error = JSON.parse(String(copy(body)))
+        if haskey(yahoo_error, "finance")
+            return string(yahoo_error["finance"]["error"]["description"])
+        elseif haskey(yahoo_error, "chart") && haskey(yahoo_error["chart"], "error")
+            desc = string(yahoo_error["chart"]["error"]["description"])
             date_matches = collect(eachmatch(r"(-)?[0-9]{1,}", desc))
             if length(date_matches) >= 2
                 error_dates = unix2datetime.(parse.(Float64, [m.match for m in date_matches[1:2]]))

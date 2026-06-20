@@ -1,67 +1,64 @@
 # YFinance.jl
 GitHub Repo: [https://github.com/eohne/YFinance.jl](https://github.com/eohne/YFinance.jl)
 
-*Download price, fundamental, and option data from Yahoo Finance*  
-This is a side project and my first package so do not expect too much. 
-## \*\*\* LEGAL DISCLAIMER \*\*\*
+*Download price, fundamental, and option data from Yahoo Finance*
+
+## Features
+
+- **Historical & intraday prices** — equities, FX, futures, ETFs, mutual funds, crypto
+- **Fundamentals** — income statement, balance sheet, cash flow, valuations
+- **Options chains** — calls/puts by expiration date
+- **Quote summary** — sector, industry, earnings, insider activity, and more
+- **Symbol search & news** — find tickers and related news articles
+- **DataFrame integration** — all results convert directly to DataFrames, TimeArrays, or TSFrames
+
+## Architecture
+
+YFinance.jl uses Julia's stdlib `Downloads.jl` (libcurl) for HTTP — no external HTTP package needed:
+
+- **Connection pooling** — persistent `Downloader` reuses TCP connections
+- **Rate limiting** — automatic throttle (300ms) between requests to avoid Yahoo 429 errors
+- **Retry with exponential backoff** — handles transient failures automatically
+- **Thread-safe session** — cookie/crumb authentication with auto-renewal on 401/403
+- **Minimal dependencies** — only JSON3, OrderedCollections, and PrecompileTools
+
+## *** LEGAL DISCLAIMER ***
 **Yahoo!, Y!Finance, and Yahoo! finance are registered trademarks of
 Yahoo, Inc.**
 
-YFinance.jl is not endorsed or in anyway affiliated with Yahoo, Inc. The data retreived can only be used for personal use. 
+YFinance.jl is not endorsed or in any way affiliated with Yahoo, Inc. The data retrieved can only be used for personal use.
 Please see Yahoo's terms of use to ensure that you can use the data:
  - [Yahoo Developer API Terms of Use](https://policies.yahoo.com/us/en/yahoo/terms/product-atos/apiforydn/index.htm)
  - [Yahoo Terms of Service](https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html)
  - [Yahoo Terms](https://policies.yahoo.com/us/en/yahoo/terms/index.htm)
 
-## \*\*\* No decryption issues \*\*\*
-The implementation of `YFinance.jl` is similar to the python package `yahooquery` in that it accesses data through API endpoints. Therefore, **`YFinance.jl` does not experience the same decryption issues** that python’s `yfinance` faces at the moment.
+## *** No decryption issues ***
+The implementation of `YFinance.jl` is similar to the python package `yahooquery` in that it accesses data through API endpoints. Therefore, **`YFinance.jl` does not experience the same decryption issues** that python's `yfinance` faces at the moment.
 
 ## What you can download
-- Price data (including intraday)
-- Fundamental data
-- Option Data
-- ESG Data
-- quoteSummary data (this is a JSON3.object that contains a multitude of different information)
+- Price data (including intraday, up to 1-minute resolution for the last 30 days)
+- Fundamental data (income statement, balance sheet, cash flow, valuations)
+- Option data (calls and puts with Greeks)
+- quoteSummary data (a JSON3 object with comprehensive company information)
+- Symbol search results
+- Financial news
 
 ## Installation
 
-The package is registered in the [`General`](https://github.com/JuliaRegistries/General) registry
+The package is registered in the [`General`](https://github.com/JuliaRegistries/General) registry.
 
-You can install the YFinance package by entering the package manager and typing:
 ```julia
-] add YFinance 
+] add YFinance
 ```
-You could also install the package by first calling `using Pkg`:
+Or:
 ```julia
 using Pkg
-Pkg.add("YFinance") 
+Pkg.add("YFinance")
 ```
 
-To load the package simply type the following:
+Then load:
 ```julia
 using YFinance
 ```
 
-## Precompilation across different versions
-
-### Version 0.1.10 
-Precompiles only the response processing part of the `get_prices` function and not the HTTP request. Most of the compilation time lies unfortunately with the request itself.  
-To Install this version enter the package mode by entering `]` in the REPL and run the following command:
-```julia
-  (@v1.10) pkg> add YFinance
-```
-
-### Version 0.1.9 
-Does not precompile.  
-To Install this version enter the package mode by entering `]` in the REPL and run the following command:
-```julia
-  (@v1.10) pkg> add YFinance @v0.1.9
-```
-
-### Version 0.1.8 
-Precompilation of the `get_prices` function. This has caused precompilation hangs for Julia 1.10 and 1.11 - package typically still precompiles but takes long and gives warnings. One user at least has reported errors. Note precompilation also does not work if you require to set a proxy to access the internet. 
-
-To Install this version enter the package mode by entering `]` in the REPL and run the following command:
-```julia
-(@v1.10) pkg> add YFinance @v0.1.8
-```
+**Requirements:** Julia 1.10+

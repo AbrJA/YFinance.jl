@@ -220,10 +220,10 @@ end
 
 
 function _process_response(response_body, symbol, interval, autoadjust, exchange_local_time, divsplits)
-    res = JSON3.read(response_body).chart.result[1]
-    time_offset = exchange_local_time ? res.meta.gmtoffset : 0
+    res = JSON.parse(String(copy(response_body)))["chart"]["result"][1]
+    time_offset = exchange_local_time ? res["meta"]["gmtoffset"] : 0
 
-    haskey(res, "timestamp") ? timestamps = res.timestamp : error("No historical data for this timeperiod of $symbol")
+    haskey(res, "timestamp") ? timestamps = res["timestamp"] : error("No historical data for this timeperiod of $symbol")
 
     idx = length(timestamps) - length(unique(timestamps)) == 1 ? (1:length(timestamps)-1) : eachindex(timestamps)
 
@@ -232,15 +232,15 @@ function _process_response(response_body, symbol, interval, autoadjust, exchange
         "timestamp" => Dates.unix2datetime.(view(timestamps, idx) .+ time_offset)
     )
 
-    quote_data = res.indicators.quote[1]
-    for field in (:open, :high, :low, :close)
-        d[string(field)] = _clean_prices_nothing(getproperty(quote_data, field)[idx])
+    quote_data = res["indicators"]["quote"][1]
+    for field in ("open", "high", "low", "close")
+        d[field] = _clean_prices_nothing(quote_data[field][idx])
     end
 
 
     if !in(interval, ("1m","2m","5m","15m","30m","60m","90m"))
-        d["adjclose"] = _clean_prices_nothing(res.indicators.adjclose[1].adjclose[idx])
-        d["vol"] = _clean_prices_nothing(quote_data.volume[idx])
+        d["adjclose"] = _clean_prices_nothing(res["indicators"]["adjclose"][1]["adjclose"][idx])
+        d["vol"] = _clean_prices_nothing(quote_data["volume"][idx])
         if autoadjust
             ratio = d["adjclose"] ./ d["close"]
             for field in ("open", "high", "low", "vol")
@@ -248,30 +248,30 @@ function _process_response(response_body, symbol, interval, autoadjust, exchange
             end
         end
     else
-        d["vol"] = _clean_prices_nothing(quote_data.volume[idx])
+        d["vol"] = _clean_prices_nothing(quote_data["volume"][idx])
     end
 
-    if divsplits && interval == "1d" && haskey(res, :events)
+    if divsplits && interval == "1d" && haskey(res, "events")
         d["div"] = zeros(Float64, length(idx))
         d["split_numerator"] = ones(Float64, length(idx))
         d["split_denominator"] = ones(Float64, length(idx))
 
         first_timestamp = minimum(d["timestamp"])
 
-        if haskey(res.events, :dividends)
-            for v in values(res.events.dividends)
-                div_date = unix2datetime(v.date + time_offset)
+        if haskey(res["events"], "dividends")
+            for v in values(res["events"]["dividends"])
+                div_date = unix2datetime(v["date"] + time_offset)
                 div_date < first_timestamp && continue
-                d["div"][d["timestamp"] .== div_date] .= v.amount
+                d["div"][d["timestamp"] .== div_date] .= v["amount"]
             end
         end
 
-        if haskey(res.events, :splits)
-            for v in values(res.events.splits)
-                split_date = unix2datetime(v.date + time_offset)
+        if haskey(res["events"], "splits")
+            for v in values(res["events"]["splits"])
+                split_date = unix2datetime(v["date"] + time_offset)
                 split_date < first_timestamp && continue
-                d["split_numerator"][d["timestamp"] .== split_date] .= v.numerator
-                d["split_denominator"][d["timestamp"] .== split_date] .= v.denominator
+                d["split_numerator"][d["timestamp"] .== split_date] .= v["numerator"]
+                d["split_denominator"][d["timestamp"] .== split_date] .= v["denominator"]
             end
         end
 
@@ -429,16 +429,16 @@ function get_splits(symbol::String;
 end
 
 function _process_splits_response(response_body, symbol, exchange_local_time)
-    res = JSON3.read(response_body).chart.result[1]
-    time_offset = exchange_local_time ? res.meta.gmtoffset : 0
+    res = JSON.parse(String(copy(response_body)))["chart"]["result"][1]
+    time_offset = exchange_local_time ? res["meta"]["gmtoffset"] : 0
 
     d = _empty_splits_dict(symbol)
 
-    if haskey(res, :events) && haskey(res.events, :splits)
-        for v in values(res.events.splits)
-            push!(d["timestamp"], unix2datetime(v.date + time_offset))
-            push!(d["numerator"], v.numerator)
-            push!(d["denominator"], v.denominator)
+    if haskey(res, "events") && haskey(res["events"], "splits")
+        for v in values(res["events"]["splits"])
+            push!(d["timestamp"], unix2datetime(v["date"] + time_offset))
+            push!(d["numerator"], v["numerator"])
+            push!(d["denominator"], v["denominator"])
         end
         d["ratio"] = d["numerator"] ./ d["denominator"]
     end
@@ -558,15 +558,15 @@ function get_dividends(symbol::String;
 end
 
 function _process_dividends_response(response_body, symbol, exchange_local_time)
-    res = JSON3.read(response_body).chart.result[1]
-    time_offset = exchange_local_time ? res.meta.gmtoffset : 0
+    res = JSON.parse(String(copy(response_body)))["chart"]["result"][1]
+    time_offset = exchange_local_time ? res["meta"]["gmtoffset"] : 0
 
     d = _empty_dividends_dict(symbol)
 
-    if haskey(res, :events) && haskey(res.events, :dividends)
-        for v in values(res.events.dividends)
-            push!(d["timestamp"], unix2datetime(v.date + time_offset))
-            push!(d["div"], v.amount)
+    if haskey(res, "events") && haskey(res["events"], "dividends")
+        for v in values(res["events"]["dividends"])
+            push!(d["timestamp"], unix2datetime(v["date"] + time_offset))
+            push!(d["div"], v["amount"])
         end
     end
 

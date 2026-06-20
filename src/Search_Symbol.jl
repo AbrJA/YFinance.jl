@@ -114,18 +114,18 @@ Type:    EQUITY
 function get_symbols(search_term::String)::YahooSearch
     url = _build_url("https://query2.finance.yahoo.com/v1/finance/search", Dict("q" => search_term))
     resp = _yahoo_get(url, search_term; timeout=10, throw_error=true)
-    parsed = JSON3.read(resp.body)
-    quotes = get(parsed, :quotes, [])
+    parsed = JSON.parse(String(copy(resp.body)))
+    quotes = get(parsed, "quotes", [])
 
     items = YahooSearchItem[]
     sizehint!(items, length(quotes))
     for q in quotes
-        symbol = string(get(q, :symbol, ""))
-        shortname = string(get(q, :shortname, ""))
-        exchange = "$(get(q, :exchDisp, "")) ($(get(q, :exchange, "")))"
-        quoteType = string(get(q, :quoteType, ""))
-        sector = string(get(q, :sector, ""))
-        industry = string(get(q, :industry, ""))
+        symbol = string(get(q, "symbol", ""))
+        shortname = string(get(q, "shortname", ""))
+        exchange = "$(get(q, "exchDisp", "")) ($(get(q, "exchange", "")))"
+        quoteType = string(get(q, "quoteType", ""))
+        sector = string(get(q, "sector", ""))
+        industry = string(get(q, "industry", ""))
         push!(items, YahooSearchItem(symbol, shortname, exchange, quoteType, sector, industry))
     end
     return YahooSearch(items)

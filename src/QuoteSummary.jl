@@ -38,7 +38,7 @@ const _QuoteSummary_Items = [
 """
     get_quoteSummary(symbol::String; item=nothing)
 
-Retrievs general information from Yahoo Finance stored in a JSON3 object.
+Retrievs general information from Yahoo Finance stored in a Dict.
 
 ## Arguments
 
@@ -46,20 +46,20 @@ Retrievs general information from Yahoo Finance stored in a JSON3 object.
 
  * item can either be a string or multiple items as a `Vector` of `Strings`. To see valid items call `_QuoteSummary_Items` (not all items are available for all types of securities)
 
- *  throw_error`::Bool` defaults to `false`. If set to true the function errors when the ticker is not valid. Else a warning is given and an empty `JSON3.Object` is returned.
+ *  throw_error`::Bool` defaults to `false`. If set to true the function errors when the ticker is not valid. Else a warning is given and an empty `Dict{String,Any}` is returned.
 
 # Examples
 ```julia-repl
 julia> get_quoteSummary("AAPL")
 
-JSON3.Object{Vector{UInt8}, SubArray{UInt64, 1, Vector{UInt64}, Tuple{UnitRange{Int64}}, true}} with 31 entries:
+Dict{String, Any} with 31 entries:
 :assetProfile             => {…
 :recommendationTrend      => {…
 :cashflowStatementHistory => {…
 
 ⋮                         => ⋮
 julia> get_quoteSummary("AAPL",item = "quoteType")
-JSON3.Object{Vector{UInt8}, SubArray{UInt64, 1, Vector{UInt64}, Tuple{UnitRange{Int64}}, true}} with 13 entries:
+Dict{String, Any} with 13 entries:
 :exchange               => "NMS"
 :quoteType              => "EQUITY"
 :symbol                 => "AAPL"
@@ -81,7 +81,7 @@ function get_quoteSummary(symbol::String; item=nothing,throw_error=false)
             error("$old_symbol is not a valid Symbol!")
         else
             @warn "$old_symbol is not a valid Symbol an empy OrderedCollections.OrderedDict was returned!"
-            return JSON3.Object()
+            return Dict{String,Any}()
         end
     else
         symbol = symbol[1]
@@ -101,24 +101,24 @@ function get_quoteSummary(symbol::String; item=nothing,throw_error=false)
 
     url = _build_url("https://query2.finance.yahoo.com/v10/finance/quoteSummary/$(symbol)", q)
     resp = _yahoo_get(url, symbol; timeout=10, throw_error=throw_error)
-    isnothing(resp) && return JSON3.Object()
+    isnothing(resp) && return Dict{String,Any}()
 
-    res = JSON3.read(resp.body)
+    res = JSON.parse(String(copy(resp.body)))
     if typeof(item) <: AbstractString
-        return res.quoteSummary.result[1][Symbol(item)]
+        return res["quoteSummary"]["result"][1][item]
     else
-        return res.quoteSummary.result[1]
+        return res["quoteSummary"]["result"][1]
     end
 end
 
 
 
 #helper Function
-function _no_key_missing(x::JSON3.Object,k::Symbol,subitem=nothing,to_date = false,from_int = false)
-    if !in(k,keys(x))
+function _no_key_missing(x::AbstractDict, k::String, subitem=nothing, to_date=false, from_int=false)
+    if !haskey(x, k)
         return missing
     end
-    if isequal(subitem,nothing)
+    if isequal(subitem, nothing)
         if to_date
             return from_int ? unix2datetime(x[k]) : DateTime(x[k])
         else
@@ -148,19 +148,19 @@ function _check_field_quotetype(x)
     end
     return res
 end
-_quote_type(quoteSummary::JSON3.Object) = quoteSummary.quoteType.quoteType
+_quote_type(quoteSummary::AbstractDict) = quoteSummary["quoteType"]["quoteType"]
 
 
 
 
 """
-    get_calendar_events(quoteSummary::JSON3.Object)
+    get_calendar_events(quoteSummary::AbstractDict)
 
 Retrievs calendar events from the quote summary.
 
 ## Arguments
 
-Can be either a `JSON3.Object` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
+Can be either a `Dict` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
 If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called first.
 
 # Examples
@@ -187,14 +187,14 @@ julia> get_calendar_events("AAPL") |> DataFrame
    2 │ 2022-11-10T00:00:00  2023-01-30T12:00:00  2022-11-04T00:00:00
 ```
 """
-function get_calendar_events(quoteSummary::JSON3.Object)
+function get_calendar_events(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:calendarEvents)
     @assert in(quote_type,field_types) """Calendar Events dont exist for $(quote_type) items only for $(join(field_types,", "))"""
-    @assert in(:calendarEvents, keys(quoteSummary)) "There are no calendar Events for this item."
-    res = OrderedCollections.OrderedDict("dividend_date" => unix2datetime(quoteSummary[:calendarEvents].dividendDate),
-                "earnings_dates" => unix2datetime.(quoteSummary[:calendarEvents].earnings.earningsDate),
-                "exdividend_date" =>unix2datetime(quoteSummary[:calendarEvents].exDividendDate))
+    @assert haskey(quoteSummary, "calendarEvents") "There are no calendar Events for this item."
+    res = OrderedCollections.OrderedDict("dividend_date" => unix2datetime(quoteSummary["calendarEvents"]["dividendDate"]),
+                "earnings_dates" => unix2datetime.(quoteSummary["calendarEvents"]["earnings"]["earningsDate"]),
+                "exdividend_date" =>unix2datetime(quoteSummary["calendarEvents"]["exDividendDate"]))
     return res
 end
 get_calendar_events(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_calendar_events
@@ -203,13 +203,13 @@ get_calendar_events(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_c
 
 
 """
-    get_earnings_estimates(quoteSummary::JSON3.Object)
+    get_earnings_estimates(quoteSummary::AbstractDict)
 
 Retrievs the earnings estimates from the quote summary.
 
 ## Arguments
 
-Can be either a `JSON3.Object` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
+Can be either a `Dict` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
 If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called first.
 
 # Examples
@@ -239,40 +239,40 @@ julia> get_earnings_estimates("AAPL") |> DataFrame
    5 │ 4Q2022       1.98  missing
 ```
 """
-function get_earnings_estimates(quoteSummary::JSON3.Object)
+function get_earnings_estimates(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:earnings)
     @assert in(quote_type,field_types) """Earnings dont exist for $(quote_type) items only for $(join(field_types,", "))"""
-    @assert in(:earnings, keys(quoteSummary)) "There are no earnings for this item."
-    if isempty(quoteSummary[:earnings].earningsChart.quarterly)
+    @assert haskey(quoteSummary, "earnings") "There are no earnings for this item."
+    if isempty(quoteSummary["earnings"]["earningsChart"]["quarterly"])
         return OrderedCollections.OrderedDict()
     end
 
     quarter = String[]
     actual = Union{Missing,Float64}[]
     estimate = Float64[]
-    for i in quoteSummary[:earnings].earningsChart.quarterly
-        push!(quarter,i.date)
-        push!(actual,i.actual)
-        push!(estimate,i.estimate)
+    for i in quoteSummary["earnings"]["earningsChart"]["quarterly"]
+        push!(quarter, i["date"])
+        push!(actual, i["actual"])
+        push!(estimate, i["estimate"])
     end
-    quoteSummary[:earnings].earningsChart
-    push!(quarter,string(quoteSummary[:earnings].earningsChart.currentQuarterEstimateDate,quoteSummary[:earnings].earningsChart.currentQuarterEstimateYear))
+    quoteSummary["earnings"]["earningsChart"]
+    push!(quarter, string(quoteSummary["earnings"]["earningsChart"]["currentQuarterEstimateDate"], quoteSummary["earnings"]["earningsChart"]["currentQuarterEstimateYear"]))
     push!(actual,missing)
-    push!(estimate, quoteSummary[:earnings].earningsChart.currentQuarterEstimate)
+    push!(estimate, quoteSummary["earnings"]["earningsChart"]["currentQuarterEstimate"])
     return OrderedCollections.OrderedDict(["quarter","estimate","actual"] .=> [quarter,estimate,actual])
 end
 get_earnings_estimates(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_earnings_estimates
 
 
 """
-    get_eps(quoteSummary::JSON3.Object)
+    get_eps(quoteSummary::AbstractDict)
 
 Retrievs the earnings per share from the quote summary.
 
 ## Arguments
 
-Can be either a `JSON3.Object` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
+Can be either a `Dict` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
 If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called first.
 
 # Examples
@@ -303,12 +303,12 @@ julia> get_eps("AAPL") |> DataFrame
    4 │ 2022-09-30T00:00:00      1.27     1.29     0.016
 ```
 """
-function get_eps(quoteSummary::JSON3.Object)
+function get_eps(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:earningsHistory)
     @assert in(quote_type,field_types) """EPS do not exist for $(quote_type) items only for $(join(field_types,", "))"""
-    @assert in(:earningsHistory, keys(quoteSummary)) "There are no earnings per share for this item."
-    if isempty(quoteSummary[:earningsHistory].history)
+    @assert haskey(quoteSummary, "earningsHistory") "There are no earnings per share for this item."
+    if isempty(quoteSummary["earningsHistory"]["history"])
         return OrderedCollections.OrderedDict()
     end
 
@@ -316,11 +316,11 @@ function get_eps(quoteSummary::JSON3.Object)
     actual = Float64[]
     estimate = Float64[]
     surprise = Float64[]
-    for i in quoteSummary[:earningsHistory].history
-        push!(quarter,DateTime(i.quarter.fmt))
-        push!(actual,i.epsActual.raw)
-        push!(estimate,i.epsEstimate.raw)
-        push!(surprise,i.surprisePercent.raw)
+    for i in quoteSummary["earningsHistory"]["history"]
+        push!(quarter, DateTime(i["quarter"]["fmt"]))
+        push!(actual, i["epsActual"]["raw"])
+        push!(estimate, i["epsEstimate"]["raw"])
+        push!(surprise, i["surprisePercent"]["raw"])
     end
     return OrderedCollections.OrderedDict(["quarter","estimate","actual","surprise"] .=> [quarter,estimate,actual,surprise])
 end
@@ -329,13 +329,13 @@ get_eps(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_eps
 
 
 """
-    get_insider_holders(quoteSummary::JSON3.Object)
+    get_insider_holders(quoteSummary::AbstractDict)
 
 Retrievs the insiders holdings from the quote summary.
 
 ## Arguments
 
-Can be either a `JSON3.Object` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
+Can be either a `Dict` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
 If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called first.
 
 # Examples
@@ -382,12 +382,12 @@ julia> get_insider_holders("AAPL") |> DataFrame
                                                                          5 columns omitted
 ```
 """
-function get_insider_holders(quoteSummary::JSON3.Object)
+function get_insider_holders(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:insiderHolders)
     @assert in(quote_type,field_types) """Insider Holdings dont exist for $(quote_type) items only for $(join(field_types,", "))"""
-    @assert in(:insiderHolders, keys(quoteSummary)) "There are is no insiderHolders item."
-    if isempty(quoteSummary[:insiderHolders].holders)
+    @assert haskey(quoteSummary, "insiderHolders") "There are is no insiderHolders item."
+    if isempty(quoteSummary["insiderHolders"]["holders"])
         return OrderedCollections.OrderedDict()
     end
 
@@ -399,15 +399,15 @@ function get_insider_holders(quoteSummary::JSON3.Object)
     direct_dt = Union{Missing,DateTime}[]
     indirect = Union{Missing,Int}[]
     indirect_dt = Union{Missing,DateTime}[]
-    for i in quoteSummary[:insiderHolders].holders
-        push!(name, i.name)
-        push!(relation, _no_key_missing(i,:relation))
-        push!(des, _no_key_missing(i,:transactionDescription))
-        push!(lasttrandt, _no_key_missing(i,:latestTransDate,:fmt,true))
-        push!(direct, _no_key_missing(i,:positionDirect,:raw))
-        push!(direct_dt,_no_key_missing(i,:positionDirectDate,:fmt,true))
-        push!(indirect,_no_key_missing(i,:positionIndirect,:raw))
-        push!(indirect_dt, _no_key_missing(i,:positionIndirectDate,:fmt,true))
+    for i in quoteSummary["insiderHolders"]["holders"]
+        push!(name, i["name"])
+        push!(relation, _no_key_missing(i, "relation"))
+        push!(des, _no_key_missing(i, "transactionDescription"))
+        push!(lasttrandt, _no_key_missing(i, "latestTransDate", "fmt", true))
+        push!(direct, _no_key_missing(i, "positionDirect", "raw"))
+        push!(direct_dt, _no_key_missing(i, "positionDirectDate", "fmt", true))
+        push!(indirect, _no_key_missing(i, "positionIndirect", "raw"))
+        push!(indirect_dt, _no_key_missing(i, "positionIndirectDate", "fmt", true))
     end
     res = OrderedCollections.OrderedDict(["name","relation","description","lastestTransDate","positionDirect",
                 "positionDirectDate","positionIndirect","positionIndirectDate"] .=>
@@ -419,13 +419,13 @@ get_insider_holders(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_i
 
 
 """
-    get_insider_transactions(quoteSummary::JSON3.Object)
+    get_insider_transactions(quoteSummary::AbstractDict)
 
 Retrievs the insider transactions from the quote summary.
 
 ## Arguments
 
-Can be either a `JSON3.Object` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
+Can be either a `Dict` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
 If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called first.
 
 # Examples
@@ -473,12 +473,12 @@ julia> get_insider_transactions("AAPL") |> DataFrame
                                                              4 columns and 62 rows omitted
 ```
 """
-function get_insider_transactions(quoteSummary::JSON3.Object)
+function get_insider_transactions(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:insiderTransactions)
     @assert in(quote_type,field_types) """Insider Transactions dont exist for $(quote_type) items only for $(join(field_types,", "))"""
-    @assert in(:insiderTransactions, keys(quoteSummary)) "There are is no insiderTransactions item."
-    if isempty(quoteSummary[:insiderTransactions].transactions)
+    @assert haskey(quoteSummary, "insiderTransactions") "There are is no insiderTransactions item."
+    if isempty(quoteSummary["insiderTransactions"]["transactions"])
         return OrderedCollections.OrderedDict()
     end
 
@@ -489,14 +489,14 @@ function get_insider_transactions(quoteSummary::JSON3.Object)
     ownership = Union{Missing,String}[]
     shares = Union{Missing,Int}[]
     value = Union{Missing,Int}[]
-    for i in quoteSummary[:insiderTransactions].transactions
-        push!(name, i.filerName)
-        push!(relation, _no_key_missing(i,:filerRelation))
-        push!(text, _no_key_missing(i,:transactionText))
-        push!(date, _no_key_missing(i,:startDate,:fmt,true))
-        push!(ownership, _no_key_missing(i,:ownership))
-        push!(shares,_no_key_missing(i,:shares,:raw))
-        push!(value,_no_key_missing(i,:value,:raw))
+    for i in quoteSummary["insiderTransactions"]["transactions"]
+        push!(name, i["filerName"])
+        push!(relation, _no_key_missing(i, "filerRelation"))
+        push!(text, _no_key_missing(i, "transactionText"))
+        push!(date, _no_key_missing(i, "startDate", "fmt", true))
+        push!(ownership, _no_key_missing(i, "ownership"))
+        push!(shares, _no_key_missing(i, "shares", "raw"))
+        push!(value, _no_key_missing(i, "value", "raw"))
     end
     res = OrderedCollections.OrderedDict(["filerName","filerRelation","transactionText","date","ownership",
                 "shares","value"] .=>
@@ -507,13 +507,13 @@ get_insider_transactions(symbol::AbstractString) =  get_quoteSummary(symbol) |> 
 
 
 """
-    get_institutional_ownership(quoteSummary::JSON3.Object)
+    get_institutional_ownership(quoteSummary::AbstractDict)
 
 Retrievs the institutional ownership from the quote summary.
 
 ## Arguments
 
-Can be either a `JSON3.Object` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
+Can be either a `Dict` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
 If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called first.
 
 # Examples
@@ -555,12 +555,12 @@ julia> get_institutional_ownership("AAPL") |> DataFrame
                                                                          2 columns omitted
 ```
 """
-function get_institutional_ownership(quoteSummary::JSON3.Object)
+function get_institutional_ownership(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:institutionOwnership)
     @assert in(quote_type,field_types) """Institutional Ownership does not exist for $(quote_type) items only for $(join(field_types,", "))"""
-    @assert in(:institutionOwnership, keys(quoteSummary)) "There are is no institutionOwnership item."
-    if isempty(quoteSummary[:institutionOwnership].ownershipList)
+    @assert haskey(quoteSummary, "institutionOwnership") "There are is no institutionOwnership item."
+    if isempty(quoteSummary["institutionOwnership"]["ownershipList"])
         return OrderedCollections.OrderedDict()
     end
 
@@ -570,13 +570,13 @@ function get_institutional_ownership(quoteSummary::JSON3.Object)
     position = Union{Missing,Int}[]
     value = Union{Missing,Int}[]
     pctChange = Union{Missing,Float64}[]
-    for i in quoteSummary[:institutionOwnership].ownershipList
-        push!(organization, i.organization)
-        push!(reportDate, _no_key_missing(i,:reportDate,:fmt,true))
-        push!(pctHeld, _no_key_missing(i,:pctHeld,:raw))
-        push!(position, _no_key_missing(i,:position,:raw))
-        push!(value, _no_key_missing(i,:value,:raw))
-        push!(pctChange,_no_key_missing(i,:pctChange,:raw))
+    for i in quoteSummary["institutionOwnership"]["ownershipList"]
+        push!(organization, i["organization"])
+        push!(reportDate, _no_key_missing(i, "reportDate", "fmt", true))
+        push!(pctHeld, _no_key_missing(i, "pctHeld", "raw"))
+        push!(position, _no_key_missing(i, "position", "raw"))
+        push!(value, _no_key_missing(i, "value", "raw"))
+        push!(pctChange, _no_key_missing(i, "pctChange", "raw"))
     end
     res = OrderedCollections.OrderedDict(["organization","reportDate","pctHeld","position","value",
                 "pctChange"] .=>
@@ -587,13 +587,13 @@ get_institutional_ownership(symbol::AbstractString) =  get_quoteSummary(symbol) 
 
 
 """
-    get_major_holders_breakdown(quoteSummary::JSON3.Object)
+    get_major_holders_breakdown(quoteSummary::AbstractDict)
 
 Retrievs the breakdown of the major holders from the quote summary.
 
 ## Arguments
 
-Can be either a `JSON3.Object` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
+Can be either a `Dict` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
 If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called first.
 
 # Examples
@@ -613,12 +613,12 @@ OrderedDict{String, Real} with 4 entries:
   "institutionsCount"            => 5526
 ```
 """
-function get_major_holders_breakdown(quoteSummary::JSON3.Object)
+function get_major_holders_breakdown(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:majorHoldersBreakdown)
     @assert in(quote_type,field_types) """The breadkown of major holders does not exist for $(quote_type) items only for $(join(field_types,", "))"""
-    @assert in(:majorHoldersBreakdown, keys(quoteSummary)) "There are is no majorHoldersBreakdown item."
-    result = OrderedCollections.OrderedDict(String(k) => v for (k , v) in quoteSummary.majorHoldersBreakdown)
+    @assert haskey(quoteSummary, "majorHoldersBreakdown") "There are is no majorHoldersBreakdown item."
+    result = OrderedCollections.OrderedDict(String(k) => v for (k , v) in quoteSummary["majorHoldersBreakdown"])
     delete!(result,"maxAge")
     return result
 end
@@ -627,13 +627,13 @@ get_major_holders_breakdown(symbol::AbstractString) =  get_quoteSummary(symbol) 
 
 
 """
-    get_recommendation_trend(quoteSummary::JSON3.Object)
+    get_recommendation_trend(quoteSummary::AbstractDict)
 
 Retrievs the recommendation trend from the quote summary.
 
 ## Arguments
 
-Can be either a `JSON3.Object` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
+Can be either a `Dict` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
 If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called first.
 
 # Examples
@@ -668,12 +668,12 @@ julia> get_recommendation_trend("AAPL") |> DataFrame
    4 │ -3m            13     20      8      0           0
 ```
 """
-function get_recommendation_trend(quoteSummary::JSON3.Object)
+function get_recommendation_trend(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:recommendationTrend)
     @assert in(quote_type,field_types) """The recommendation trend does not exist for $(quote_type) items only for $(join(field_types,", "))"""
-    @assert in(:recommendationTrend, keys(quoteSummary)) "There are is no recommendationTrend item."
-    if isempty(quoteSummary[:recommendationTrend].trend)
+    @assert haskey(quoteSummary, "recommendationTrend") "There are is no recommendationTrend item."
+    if isempty(quoteSummary["recommendationTrend"]["trend"])
         return OrderedCollections.OrderedDict()
     end
 
@@ -683,13 +683,13 @@ function get_recommendation_trend(quoteSummary::JSON3.Object)
     hold = Int[]
     sell = Int[]
     strongsell = Int[]
-    for i in quoteSummary[:recommendationTrend].trend
-        push!(period, i.period)
-        push!(strongbuy, i.strongBuy)
-        push!(buy, i.buy)
-        push!(hold, i.hold)
-        push!(sell, i.sell)
-        push!(strongsell, i.strongSell)
+    for i in quoteSummary["recommendationTrend"]["trend"]
+        push!(period, i["period"])
+        push!(strongbuy, i["strongBuy"])
+        push!(buy, i["buy"])
+        push!(hold, i["hold"])
+        push!(sell, i["sell"])
+        push!(strongsell, i["strongSell"])
     end
     res = OrderedCollections.OrderedDict(["period","strongbuy","buy","hold","sell",
                 "strongsell"] .=>
@@ -701,13 +701,13 @@ get_recommendation_trend(symbol::AbstractString) =  get_quoteSummary(symbol) |> 
 
 
 """
-    get_summary_detail(quoteSummary::JSON3.Object)
+    get_summary_detail(quoteSummary::AbstractDict)
 
 Retrievs the summaryDetail Item from the quote summary.
 
 ## Arguments
 
-Can be either a `JSON3.Object` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
+Can be either a `Dict` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
 If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called first.
 
 # Examples
@@ -755,12 +755,12 @@ OrderedDict{String, Any} with 41 entries:
   ⋮                            => ⋮
 ```
 """
-function get_summary_detail(quoteSummary::JSON3.Object)
+function get_summary_detail(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:summaryDetail)
     @assert in(quote_type,field_types) """Summary details dont exist for $(quote_type) items only for $(join(field_types,", "))"""
-    @assert in(:summaryDetail, keys(quoteSummary)) "There are is no summaryDetail item."
-    result = OrderedCollections.OrderedDict(String(k) => v for (k , v) in quoteSummary.summaryDetail)
+    @assert haskey(quoteSummary, "summaryDetail") "There are is no summaryDetail item."
+    result = OrderedCollections.OrderedDict(String(k) => v for (k , v) in quoteSummary["summaryDetail"])
     delete!(result,"maxAge")
     return result
 end
@@ -769,13 +769,13 @@ get_summary_detail(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_su
 
 
 """
-    get_sector_industry(quoteSummary::JSON3.Object)
+    get_sector_industry(quoteSummary::AbstractDict)
 
 Retrievs the Sector and Industry from the quote summary.
 
 ## Arguments
 
-Can be either a `JSON3.Object` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
+Can be either a `Dict` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
 If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called first.
 
 # Examples
@@ -791,24 +791,24 @@ OrderedDict{String, String} with 2 entries:
   "industry" => "Consumer Electronics"
 ```
 """
-function get_sector_industry(quoteSummary::JSON3.Object)
+function get_sector_industry(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:summaryProfile)
     @assert in(quote_type,field_types) """The summary profile does not exist for $(quote_type) items only for $(join(field_types,", "))"""
-    result = OrderedCollections.OrderedDict("sector" =>quoteSummary.summaryProfile.sector, "industry"=>quoteSummary.summaryProfile.industry)
+    result = OrderedCollections.OrderedDict("sector" =>quoteSummary["summaryProfile"]["sector"], "industry"=>quoteSummary["summaryProfile"]["industry"])
     return result
 end
 get_sector_industry(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_sector_industry
 
 
 """
-    get_upgrade_downgrade_history(quoteSummary::JSON3.Object)
+    get_upgrade_downgrade_history(quoteSummary::AbstractDict)
 
 Retrievs the upgrade and downgrade history from the quote summary.
 
 ## Arguments
 
-Can be either a `JSON3.Object` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
+Can be either a `Dict` returned from `get_quoteSummary(symbol::String; item=nothing,throw_error=false)` or a ticker symbol of type `AbstractString`
 If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called first.
 
 # Examples
@@ -852,12 +852,12 @@ julia> get_upgrade_downgrade_history("AAPL") |> DataFrame
                                                                 859 rows omitted
 ```
 """
-function get_upgrade_downgrade_history(quoteSummary::JSON3.Object)
+function get_upgrade_downgrade_history(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:upgradeDowngradeHistory)
     @assert in(quote_type,field_types) """The history of up- and downgrades does not exist for $(quote_type) items only for $(join(field_types,", "))"""
-    @assert in(:upgradeDowngradeHistory, keys(quoteSummary)) "There are is no upgradeDowngradeHistory item."
-    if isempty(quoteSummary[:upgradeDowngradeHistory].history)
+    @assert haskey(quoteSummary, "upgradeDowngradeHistory") "There are is no upgradeDowngradeHistory item."
+    if isempty(quoteSummary["upgradeDowngradeHistory"]["history"])
         return OrderedCollections.OrderedDict()
     end
 
@@ -866,12 +866,12 @@ function get_upgrade_downgrade_history(quoteSummary::JSON3.Object)
     toGrade = Union{Missing,String}[]
     fromGrade = Union{Missing,String}[]
     action = Union{Missing,String}[]
-    for i in quoteSummary[:upgradeDowngradeHistory].history
-        push!(firm, i.firm)
-        push!(date, _no_key_missing(i,:epochGradeDate,nothing,true,true))
-        push!(toGrade, _no_key_missing(i,:toGrade))
-        push!(fromGrade, _no_key_missing(i,:fromGrade))
-        push!(action, _no_key_missing(i,:action))
+    for i in quoteSummary["upgradeDowngradeHistory"]["history"]
+        push!(firm, i["firm"])
+        push!(date, _no_key_missing(i, "epochGradeDate", nothing, true, true))
+        push!(toGrade, _no_key_missing(i, "toGrade"))
+        push!(fromGrade, _no_key_missing(i, "fromGrade"))
+        push!(action, _no_key_missing(i, "action"))
     end
     res = OrderedCollections.OrderedDict(["firm","date","toGrade","fromGrade","action"] .=>
                [firm,date,toGrade,fromGrade,action])

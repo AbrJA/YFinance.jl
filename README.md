@@ -7,13 +7,22 @@
 
 Julia interface to Yahoo Finance, inspired by Python's yfinance.
 
-- Historical and intraday prices
-- Fundamentals and quote summary data
-- Options chains
-- FX, futures, ETFs, and mutual funds
+- Historical and intraday prices (equities, FX, futures, ETFs, mutual funds, crypto)
+- Fundamentals (income statement, balance sheet, cash flow, valuations)
+- Options chains (calls/puts by expiration)
+- Quote summary data (sector, industry, earnings, insider activity, etc.)
+- Symbol search and news
 - Easy conversion to DataFrames, TimeArray, and TSFrame
 
+## Architecture
 
+YFinance.jl uses a lightweight, zero-external-HTTP-dependency networking layer built on Julia's stdlib `Downloads.jl` (libcurl):
+
+- **Connection pooling** — persistent `Downloader` reuses TCP connections
+- **Rate limiting** — automatic 300ms throttle between requests
+- **Retry with backoff** — exponential backoff on 429/network errors
+- **Session management** — thread-safe cookie/crumb auth with auto-renewal
+- **Minimal dependencies** — only 3 external packages (JSON3, OrderedCollections, PrecompileTools)
 
 ## Quick start
 
@@ -27,8 +36,8 @@ DataFrame(prices)
 ## Installation
 
 The package is registered in the [`General`](https://github.com/JuliaRegistries/General) registry and so can be installed at the REPL with `] add YFinance` or by running:
-```julia 
-    using Pkg 
+```julia
+    using Pkg
     Pkg.add("YFinance")
 ```
 
@@ -37,7 +46,7 @@ The package is registered in the [`General`](https://github.com/JuliaRegistries/
 **Yahoo!, Y!Finance, and Yahoo! finance are registered trademarks of
 Yahoo, Inc.**
 
-YFinance.jl is not endorsed or in any way affiliated with Yahoo, Inc. The data retrieved can only be used for personal use. 
+YFinance.jl is not endorsed or in any way affiliated with Yahoo, Inc. The data retrieved can only be used for personal use.
 Please see Yahoo's terms of use to ensure that you can use the data:
  - [Yahoo Developer API Terms of Use](https://policies.yahoo.com/us/en/yahoo/terms/product-atos/apiforydn/index.htm)
  - [Yahoo Terms of Service](https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html)
@@ -47,8 +56,8 @@ Please see Yahoo's terms of use to ensure that you can use the data:
 
 There are more examples in the Docs.
 
-### Get Prices:  
-Apple monthly stock price over the past 5 years, with dividend and stock split information in local user time.  
+### Get Prices:
+Apple monthly stock price over the past 5 years, with dividend and stock split information in local user time.
 
 ```julia
 using YFinance
@@ -65,18 +74,18 @@ OrderedCollections.OrderedDict{String, Any} with 8 entries:
   "close"     => [55.9925, 62.19, 66.8125, 73.4125, 77.3775, 68.34, 63.5725, 73.45, 79.485, 91.2  …  192.53, 184.4, 180.75…
   "adjclose"  => [54.2435, 60.2474, 64.7255, 71.3329, 75.1856, 66.4041, 61.9183, 71.5387, 77.4167, 89.0673  …  192.024, 18…
   "vol"       => [2.10248e9, 2.35721e9, 1.73731e9, 2.32113e9, 2.85125e9, 2.93375e9, 6.11666e9, 3.18033e9, 2.73292e9, 3.167…
-```  
+```
 
 
-### Convert to DataFrame  
-Bitcoin USD, 5 minute data points for an entire day.  
+### Convert to DataFrame
+Bitcoin USD, 5 minute data points for an entire day.
 
 ```julia
 DataFrame(get_prices("BTC-USD",range="1d",interval="5m",exchange_local_time=true))
 ```
 ```julia
 147×7 DataFrame
- Row │ ticker   timestamp            open     high     low      close    vol       
+ Row │ ticker   timestamp            open     high     low      close    vol
      │ String   DateTime             Float64  Float64  Float64  Float64  Float64
 ─────┼─────────────────────────────────────────────────────────────────────────────
    1 │ BTC-USD  2024-08-08T00:00:00  55139.5  55254.3  55139.5  55254.3  7.3769e6
@@ -90,14 +99,14 @@ DataFrame(get_prices("BTC-USD",range="1d",interval="5m",exchange_local_time=true
                                                                    140 rows omitted
 ```
 
-### Sink to TimeArray  
+### Sink to TimeArray
 
 Rolls-Royce daily stock price between 2020-01-01 and 2020-05-30
 
 ```julia
 using TimeSeries
 get_prices(TimeArray,"RR.L",startdt="2020-01-01",enddt="2020-05-30")
-```  
+```
 
 ```julia
 103×6 TimeArray{Float64, 2, DateTime, Matrix{Float64}} 2020-01-02T08:00:00 to 2020-05-29T07:00:00
@@ -116,17 +125,17 @@ get_prices(TimeArray,"RR.L",startdt="2020-01-01",enddt="2020-05-30")
                                                                        96 rows omitted
 ```
 
-### Sink to TSFrame  
-EURO-USD (EURUSD=X) daily price since start of data  
+### Sink to TSFrame
+EURO-USD (EURUSD=X) daily price since start of data
 
 ```julia
 using TSFrames
 tsf = get_prices(TSFrame,"EURUSD=X",startdt=Date(1900,1,1),enddt=today())
-```  
+```
 
 ```julia
 5399×7 TSFrame with DateTime Index
- Index                open     high     low      close    adjclose  vol      ticker   
+ Index                open     high     low      close    adjclose  vol      ticker
  DateTime             Float64  Float64  Float64  Float64  Float64   Float64  String
 ──────────────────────────────────────────────────────────────────────────────────────
  2003-12-01T00:00:00  1.2034   1.20401  1.1944   1.1965    1.1965       0.0  EURUSD=X
@@ -144,7 +153,7 @@ tsf = get_prices(TSFrame,"EURUSD=X",startdt=Date(1900,1,1),enddt=today())
 ```julia
 using Plots
 plot(tsf[:,[:Index,:adjclose]])
-```  
+```
 ![EURUSD](docs/src/assets/snp500.svg)
 
 [docs-stable-img]: https://img.shields.io/badge/docs-stable-blue.svg
@@ -158,11 +167,11 @@ plot(tsf[:,[:Index,:adjclose]])
 ### Get Valuations of NFLX
 ```julia
 get_Fundamental("NFLX", "valuation","annual",today()-Year(3) , today()) |> DataFrame
-```  
+```
 
 ```julia
 3×10 DataFrame
- Row │ timestamp            PegRatio  ForwardPeRatio  MarketCap     PeRatio  EnterprisesValueRevenueRatio  PbRatio  EnterprisesValueEBITDARatio  PsRatio  EnterpriseValue 
+ Row │ timestamp            PegRatio  ForwardPeRatio  MarketCap     PeRatio  EnterprisesValueRevenueRatio  PbRatio  EnterprisesValueEBITDARatio  PsRatio  EnterpriseValue
      │ DateTime             Any       Any             Any           Any      Any                           Any      Any                          Any      Any
 ─────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    1 │ 2021-12-31T00:00:00  1.4751    46.5116         267461134181  54.3228  9.6192                        17.4644  14.914                       9.57841  275427617181
@@ -172,12 +181,12 @@ get_Fundamental("NFLX", "valuation","annual",today()-Year(3) , today()) |> DataF
 
 ### Get Income Statement:
 ```julia
-is=get_Fundamental("AMD", "income_statement","annual",today()-Year(1) , today()) |> DataFrame 
+is=get_Fundamental("AMD", "income_statement","annual",today()-Year(1) , today()) |> DataFrame
 stack(is, Not(:timestamp))
-```  
+```
 ```julia
 49×3 DataFrame
- Row │ timestamp            variable                           value       
+ Row │ timestamp            variable                           value
      │ DateTime             String                             Any
 ─────┼─────────────────────────────────────────────────────────────────────
    1 │ 2023-12-31T00:00:00  InterestExpenseNonOperating        106000000
@@ -195,7 +204,7 @@ stack(is, Not(:timestamp))
 
 ```julia
 op = get_Options("AMD")
-```  
+```
 ```julia
 OrderedCollections.OrderedDict{String, OrderedCollections.OrderedDict{String, Vector{Any}}} with 2 entries:
   "calls" => OrderedDict("contractSymbol"=>["AMD240809C00075000", "AMD240809C00080000", "AMD240809C00085000", "AMD240809C0…
@@ -211,13 +220,13 @@ DataFrame(op["calls"])
      │ Any                 Any     Any       Any        Any     Any            Any     Any           Any  Any  Any        ⋯
 ─────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
    1 │ AMD240809C00075000  75      USD       59.65      0       0              1       26            0    0    REGULAR    ⋯
-   2 │ AMD240809C00080000  80      USD       52.61      0       0              1       11            0    0    REGULAR     
-   3 │ AMD240809C00085000  85      USD       49.69      0       0              2       0             0    0    REGULAR     
-   4 │ AMD240809C00090000  90      USD       44.54      0       0              3       12            0    0    REGULAR     
+   2 │ AMD240809C00080000  80      USD       52.61      0       0              1       11            0    0    REGULAR
+   3 │ AMD240809C00085000  85      USD       49.69      0       0              2       0             0    0    REGULAR
+   4 │ AMD240809C00090000  90      USD       44.54      0       0              3       12            0    0    REGULAR
   ⋮  │         ⋮             ⋮        ⋮          ⋮        ⋮           ⋮          ⋮          ⋮         ⋮    ⋮        ⋮     ⋱
   63 │ AMD240809C00285000  285     USD       0.01       0       0              15      16            0    0    REGULAR    ⋯
-  64 │ AMD240809C00290000  290     USD       0.08       0       0              7       10            0    0    REGULAR     
-  65 │ AMD240809C00295000  295     USD       0.01       0       0              1       19            0    0    REGULAR     
+  64 │ AMD240809C00290000  290     USD       0.08       0       0              7       10            0    0    REGULAR
+  65 │ AMD240809C00295000  295     USD       0.01       0       0              1       19            0    0    REGULAR
                                                                                               6 columns and 58 rows omitted
 ```
 ## \*\*\* This is only a small subset of functions and data items for the full set, see the documentation. \*\*\*
