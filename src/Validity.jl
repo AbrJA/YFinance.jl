@@ -5,26 +5,22 @@ Validates a Symbol (Ticker). Returns `true` if the ticker is valid and `false` i
 
 # Arguments
 
- * smybol`::String` is a ticker (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)  
+ * smybol`::String` is a ticker (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)
 
 # How it works
 
-Checks if the HTTP request works (status 200) or whether the request errors (common status in this case: 404)    
-
+Makes a lightweight chart request — returns true if HTTP 200, false otherwise.
 """
 function validate_symbol(symbol::AbstractString)
-    _set_cookies_and_crumb()
-    res = try
+    try
         q = Dict("range"=>"1d", "interval"=>"1d")
-        url = _build_url("https://query2.finance.yahoo.com/v8/finance/chart/$(symbol)", q)
-        headers = _make_headers(; cookies=_COOKIE)
-        resp = _request(url; headers=headers, timeout=10, throw_on_error=false)
-        resp.status
-    catch e 
-        0
-    end #end try
-        return isequal(res,200) ? true : false
-end #end validate_symbol
+        url = _build_url("$(_BASE_URL_)/v8/finance/chart/$(symbol)", q)
+        resp = _request(url; timeout=10, throw_on_error=false)
+        return resp.status == 200
+    catch
+        return false
+    end
+end
 
 """
     get_valid_symbols(symbol::AbstractString)
@@ -33,7 +29,7 @@ Takes a symbol. If the symbol is valid it returns the symbol in a vector if not 
 
 # Arguments
 
- * smybol`::AbstractString` is a ticker (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)  
+ * smybol`::AbstractString` is a ticker (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)
 
 # Examples
 
@@ -60,7 +56,7 @@ Takes a `AbstractVector` of symbols and returns only the valid ones.
 
 # Arguments
 
- * smybol`::AbstractVector{<:AbstractString}` is a vector of tickers (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)  
+ * smybol`::AbstractVector{<:AbstractString}` is a vector of tickers (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)
 
 # Examples
 

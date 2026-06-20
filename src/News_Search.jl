@@ -3,7 +3,7 @@ This is an `NewsItem`
 
 # Fields
 - title: Title of the news article
-- publisher: Publisher of the news 
+- publisher: Publisher of the news
 - link: The link to the news article
 - timestamp: The timestamp of the time when the news was published (`DateTime`)
 - symbols: An array of the tickers related to the news item
@@ -37,13 +37,13 @@ end
 
 Returns the titles of all `NewsItem`s in a `Vector`
 
-# Arugments:  
+# Arugments:
    * x`::YahooNews`
 
-# Returns:  
+# Returns:
    * `Vector{String}`
 
-# Example:  
+# Example:
 ```julia
 julia> x = search_news("MSFT");
 
@@ -73,10 +73,10 @@ end
 
 Returns the links of all `NewsItem`s in a `Vector`
 
-# Arugments:  
+# Arugments:
    * x`::YahooNews`
 
-# Returns:  
+# Returns:
    * `Vector{String}`
 
 # Example:
@@ -93,7 +93,7 @@ julia> links(x)
  "https://finance.yahoo.com/news/board-oks-microsoft-data-center-163630944.html"
  "https://finance.yahoo.com/news/" ⋯ 20 bytes ⋯ "-workplace-where-155427039.html"
  "https://finance.yahoo.com/news/microsoft-working-space-time-add-150000132.html"
-``` 
+```
 """
 function links(x::YahooNews)
     links = String[]
@@ -109,10 +109,10 @@ end
 
 Returns the timestamp of all `NewsItem`s in a `Vector`
 
-# Arugments:  
+# Arugments:
    * x`::YahooNews`
 
-# Returns:  
+# Returns:
    * `Vector{DateTime}`
 
 # Example:
@@ -129,7 +129,7 @@ julia> timestamps(x)
  2023-04-19T16:36:30
  2023-04-19T15:54:27
  2023-04-19T15:00:00
-``` 
+```
 """
 function timestamps(x::YahooNews)
     timestamps = DateTime[]
@@ -155,11 +155,11 @@ end
 
 Returns news related to the seach string `str`.
 
-# Arugments:  
+# Arugments:
    * str`::String`: The search string. It is usually a symbol.
    * lang`::String`: The search language and region. The region is automatically set according to the language. Supported languages are: "en-us", "en-ca", "en-gb", "en-au", "en-nz", "en-SG", "en-in", "de", "es", "fr", "it", "pt-br", "zh", and "zh-tw".
 
-# Returns:  
+# Returns:
    * `YahooNews <: AbstractArray` that contains  `NewsItem`s with fields: title`::String`, publisher`::String`, link`::String`, timestamp`::DateTime`, symbols`::Array{String,1}`
 
 # Example:
@@ -233,13 +233,11 @@ function search_news(str::String;lang="en-us")
         "zh-tw"=>("zh-TW","TW")
     )
     @assert in(lang, keys(lang_opt)) "Language not supported choose one from: $(join(keys(lang_opt),", "))"
-	_set_cookies_and_crumb()
 	yfinance_search_link = "https://query2.finance.yahoo.com/v1/finance/search"
 	query = Dict("q" => str, "lang"=>lang_opt[lang][1],"region"=>lang_opt[lang][2])
 	url = _build_url(yfinance_search_link, query)
-	headers = _make_headers(; cookies=_COOKIE)
-	response = _request(url; headers=headers, timeout=10, throw_on_error=false)
-	repsonse_parsed = JSON3.read(response.body).news
+	resp = _yahoo_get(url, str; timeout=10, throw_error=true)
+	repsonse_parsed = JSON3.read(resp.body).news
     news = NewsItem[]
     for i in repsonse_parsed
         if haskey(i, :relatedTickers)

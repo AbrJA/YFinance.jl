@@ -397,13 +397,13 @@ Retrievs financial statement information from Yahoo Finance stored in a OrderedC
 
 # Arguments
 
- * `smybol::String` is a ticker (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)  
+ * `smybol::String` is a ticker (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)
 
- * `item::String` can either be an entire financial statement or a subitem. Entire financial statements:`"income_statement", "valuation", "cash_flow", "balance_sheet"`. To see valid sub items grouped by financial statement type in a `OrderedCollections.OrderedDict` call `_Fundamental_Types`  
+ * `item::String` can either be an entire financial statement or a subitem. Entire financial statements:`"income_statement", "valuation", "cash_flow", "balance_sheet"`. To see valid sub items grouped by financial statement type in a `OrderedCollections.OrderedDict` call `_Fundamental_Types`
 
- * `interval::String` can be one of "annual", "quarterly", "monthly"  
+ * `interval::String` can be one of "annual", "quarterly", "monthly"
 
- * `startdt` and `enddt` take the following types: `::Date`,`::DateTime`, or a `String` of the following form `yyyy-mm-dd`  
+ * `startdt` and `enddt` take the following types: `::Date`,`::DateTime`, or a `String` of the following form `yyyy-mm-dd`
 
  *  `throw_error::Bool` defaults to `false`. If set to true the function errors when the ticker is not valid. Else a warning is given and an empty `OrderedCollections.OrderedDict` is returned.
 
@@ -411,20 +411,20 @@ Retrievs financial statement information from Yahoo Finance stored in a OrderedC
 ```julia-repl
 julia> get_Fundamental("NFLX", "income_statement","quarterly","2000-01-01","2022-12-31")
 OrderedDict{String, Any} with 40 entries:
-  "timestamp"                       => [DateTime("2021-12-31T00:00:00"), DateTime("2022-0…  "GeneralAndAdministrativeExpense" => Any[397790000, 397928000, 409297000, 373213000]    
-  "SellingGeneralAndAdministration" => Any[1190503000, 953906000, 984257000, 941167000]   
-  "InterestIncome"                  => Any[108512000, 195645000, 220226000, 261404000]    
-  "OperatingRevenue"                => Any[7709318000, 7867767000, 7970141000, 7925589000]  "DilutedNIAvailtoComStockholders" => Any[607429000, 1597447000, 1440951000, 1398242000] 
-  "NormalizedIncome"                => Any[607429000, 1597447000, 1440951000, 1398242000] 
-  "NetIncomeCommonStockholders"     => Any[607429000, 1597447000, 1440951000, 1398242000] 
-  "BasicAverageShares"              => Any[443462000, 444146000, 444557000, 444878000]    
+  "timestamp"                       => [DateTime("2021-12-31T00:00:00"), DateTime("2022-0…  "GeneralAndAdministrativeExpense" => Any[397790000, 397928000, 409297000, 373213000]
+  "SellingGeneralAndAdministration" => Any[1190503000, 953906000, 984257000, 941167000]
+  "InterestIncome"                  => Any[108512000, 195645000, 220226000, 261404000]
+  "OperatingRevenue"                => Any[7709318000, 7867767000, 7970141000, 7925589000]  "DilutedNIAvailtoComStockholders" => Any[607429000, 1597447000, 1440951000, 1398242000]
+  "NormalizedIncome"                => Any[607429000, 1597447000, 1440951000, 1398242000]
+  "NetIncomeCommonStockholders"     => Any[607429000, 1597447000, 1440951000, 1398242000]
+  "BasicAverageShares"              => Any[443462000, 444146000, 444557000, 444878000]
   ⋮                                 => ⋮
 
 
 julia> using DataFrames
 julia> get_Fundamental("AAPL", "InterestExpense","quarterly","2000-01-01","2022-12-31") |> DataFrame
 4×2 DataFrame
- Row │ timestamp            InterestExpense 
+ Row │ timestamp            InterestExpense
      │ DateTime             Any
 ─────┼──────────────────────────────────────
    1 │ 2021-12-31T00:00:00  694000000
@@ -442,14 +442,14 @@ function get_Fundamental(symbol::AbstractString, item::AbstractString,interval::
          if throw_error
              error("$old_symbol is not a valid Symbol!")
          else
-             @warn "$old_symbol is not a valid Symbol an empy OrderedDict was returned!" 
+             @warn "$old_symbol is not a valid Symbol an empy OrderedDict was returned!"
              return OrderedCollections.OrderedDict()
          end
      else
          symbol = symbol[1]
      end
 
-    # Check Start and end dates. 
+    # Check Start and end dates.
     if !isequal(startdt,"") || !isequal(enddt,"")
         range = ""
         startdt, enddt = _date_to_unix(startdt), _date_to_unix(enddt)
@@ -470,11 +470,11 @@ function get_Fundamental(symbol::AbstractString, item::AbstractString,interval::
         "period1"=>startdt,
         "period2"=>enddt,
         "formatted" => "false"
-    )  
-    url = "https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/$(symbol)"
-    headers = _make_headers(; cookies=_COOKIE)
-    res = _request(_build_url(url, q); headers=headers, timeout=10, throw_on_error=false)
-    res = JSON3.read(res.body).timeseries.result
+    )
+    url = _build_url("https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/$(symbol)", q)
+    resp = _yahoo_get(url, symbol; timeout=10, throw_error=throw_error)
+    isnothing(resp) && return OrderedCollections.OrderedDict()
+    res = JSON3.read(resp.body).timeseries.result
     if entire_statement
         result = OrderedCollections.OrderedDict{String,Any}()
         for i in eachindex(res)
@@ -501,7 +501,7 @@ function get_Fundamental(symbol::AbstractString, item::AbstractString,interval::
             end
 
             result = OrderedCollections.OrderedDict("timestamp" => unix2datetime.(res[1].timestamp),item =>value)
-        end             
+        end
     end
     return result
 end

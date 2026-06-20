@@ -10,7 +10,7 @@ Fetch all the symbols from a given `market`.
 Currently supported markets are:
   - `AMEX`
   - `NASDAQ`
-  - `NYSE`  
+  - `NYSE`
 
 Uses dumbstockapi.com
 
@@ -34,11 +34,9 @@ julia> get_all_symbols("NYSE")
 """
 function get_all_symbols(market::T)::Vector{T} where {T<:String}
   uppercase(market) in MARKETS || throw(ArgumentError("Invalid market. Supported markets are $(MARKETS)"))
-  _set_cookies_and_crumb()
   url = "https://dumbstockapi.com/stock?format=tickers-only&exchange=$market"
-  headers = _make_headers(; cookies=_COOKIE)
-  response = _request(url; headers=headers, timeout=10, throw_on_error=false)
-  Symbols_string::T = String(response.body)
+  resp = _yahoo_get(url, market; timeout=10, throw_error=true)
+  Symbols_string::T = String(resp.body)
   splitted::Vector{T} = split(Symbols_string, ",")
   pured::Vector{T} = replace.(splitted, r"\"" => "")
   f_idx, l_idx = firstindex(pured), lastindex(pured)
@@ -50,21 +48,21 @@ end;
 
 
 
-# Old Function: 
+# Old Function:
 # function get_symbols(search_term::String)
-	
+
 # 	yfinance_search_link = "https://query2.finance.yahoo.com/v1/finance/search"
-	
+
 #   # Example of full query:
 #   # https://query2.finance.yahoo.com/v1/finance/search?q=microsoft&lang=en-US&region=US&quotesCount=6&newsCount=2&listsCount=2&enableFuzzyQuery=false&quotesQueryId=tss_match_phrase_query&multiQuoteQueryId=multi_quote_single_token_query&newsQueryId=news_cie_vespa&enableCb=true&enableNavLinks=true&enableEnhancedTrivialQuery=true&enableResearchReports=true&researchReportsCount=2
 # 	query = Dict("q" => search_term)
-	
+
 # 	response = HTTP.get(yfinance_search_link,query = query)
-	
+
 # 	repsonse_parsed = JSON3.read(response.body)
 
 # 	quotes = repsonse_parsed.quotes
-	
+
 # 	# Also provides news under response_parsed.news
 # 	return quotes
 # end
@@ -128,11 +126,11 @@ Allows searches for specific securities.
 # Returns
    * A `YahooSearch <: AbstractArray` containing `YahooSearchItem`s containing the following fields: symbol`::String`, shortname`::String`, exchange`::String`, quoteType`::String`, sector`::String`, industry`::String`
 
-# Example 
+# Example
 ```julia
 julia> get_symbols("micro")
 7-element YahooSearch{YahooSearchItem, 1}:
- 
+
 Symbol:  MGC=F
 Name:    Micro Gold Futures,Jun-2023
 Type:    FUTURE
@@ -186,13 +184,11 @@ Exch.:   NYSEArca (PCX)
 ```
 """
 function get_symbols(search_term::String)
-  _set_cookies_and_crumb()
   yfinance_search_link = "https://query2.finance.yahoo.com/v1/finance/search"
   query = Dict("q" => search_term)
   url = _build_url(yfinance_search_link, query)
-  headers = _make_headers(; cookies=_COOKIE)
-  response = _request(url; headers=headers, timeout=10, throw_on_error=false)
-  repsonse_parsed = JSON3.read(response.body).quotes
+  resp = _yahoo_get(url, search_term; timeout=10, throw_error=true)
+  repsonse_parsed = JSON3.read(resp.body).quotes
    quotes = YahooSearchItem[]
    for i in repsonse_parsed
        if haskey(i, :sector)

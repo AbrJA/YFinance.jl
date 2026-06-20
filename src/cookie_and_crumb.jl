@@ -1,81 +1,60 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# cookie_and_crumb.jl — Backward-compatible session management API
+# All state now lives in _SESSION (network.jl). These functions provide the
+# public/exported interface and backward compat for existing user code.
+# ─────────────────────────────────────────────────────────────────────────────
+
 """
     _rand_header()
 
-Chooses a random header.
+Chooses a random browser header from the HEADERS pool.
 """
-function _rand_header()
-    return rand(HEADERS)
-end;
+_rand_header() = rand(HEADERS)
 
 """
     get_cookie()
 
-Retrieves cookies from "https://fc.yahoo.com".
+Retrieves cookies from Yahoo Finance. Returns a Dict{String,String}.
 """
 function get_cookie()
-    headers = _make_headers(; cookies=Dict{String,String}())
-    resp = _request("https://fc.yahoo.com"; headers=headers, timeout=10, throw_on_error=false)
-    cookies = _parse_set_cookie(resp.headers)
-    return cookies
-end;
+    _ensure_session!()
+    return copy(_SESSION.cookie)
+end
 
 """
     get_crumb()
 
-Passess the request header and the cookies to "https://query2.finance.yahoo.com/v1/test/getcrumb" and retrieves the crumb. 
-If the global _HEADER or _COOKIE variables are not defined they are created.
+Returns the current session crumb. Initializes the session if needed.
 """
 function get_crumb()
-    if (@isdefined _HEADER) && (@isdefined _COOKIE)
-        nothing
-    else
-        _set_cookies_and_crumb()
-    end
-    headers = _make_headers(; cookies=_COOKIE)
-    resp = _request("https://query2.finance.yahoo.com/v1/test/getcrumb"; headers=headers, timeout=10, throw_on_error=false)
-    res = String(resp.body)
-    if isequal(res,"")
-        @warn "Crumb could not be retrieved. Certain data items will not be available!"
-    end
-    return res
-end;
+    _ensure_session!()
+    return _SESSION.crumb
+end
 
 """
     _renew_cookies_and_crumb()
 
-Renews both the cookies and the crumb.
+Forces a fresh cookie+crumb fetch.
 """
-function _renew_cookies_and_crumb()
-    if @isdefined _HEADER
-       global _COOKIE = get_cookie()
-       global _CRUMB = get_crumb()
-    else
-        global _HEADER = _rand_header()
-        global _COOKIE = get_cookie()
-        global _CRUMB = get_crumb()
-    end
-end;
-
+_renew_cookies_and_crumb() = _renew_session!()
 
 """
     _set_cookies_and_crumb()
 
-Checks if the global _COOKIE and _CRUMB variables are set if not it creates them. 
+Ensures the session is initialized (cookie + crumb are available).
+Thread-safe and idempotent — safe to call from any endpoint.
 """
-function _set_cookies_and_crumb()
-    if @isdefined _HEADER
-        nothing
-    else 
-       global _HEADER = _rand_header()
-    end
-    if @isdefined _COOKIE 
-        nothing
-    else
-        global _COOKIE = get_cookie()
-    end
-    if @isdefined _CRUMB 
-        nothing
-    else
-        global _CRUMB = get_crumb()
-    end
-end;
+_set_cookies_and_crumb() = _ensure_session!()
+
+# Legacy global access (for backward compat with user code that reads these)
+# These are now computed properties backed by _SESSION
+
+"""
+    _COOKIE
+
+Returns the current session cookie dict. (Backward-compatible accessor)
+"""
+macro _get_cookie()
+    return :(_SESSION.cookie)
+end
+

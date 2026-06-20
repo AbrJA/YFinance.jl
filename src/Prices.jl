@@ -16,7 +16,7 @@ function _clean_prices_nothing(x::AbstractVector)
             return val
         end
     end
-    
+
     return output
 end
 _clean_prices_nothing(x::AbstractVector{Float64}) = x
@@ -70,7 +70,7 @@ An `OrderedDict{String, Union{String,Vector{DateTime},Vector{Float64}}}` contain
 julia> get_prices("AAPL", range="1d", interval="90m")
 OrderedDict{String, Union{String,Vector{DateTime},Vector{Float64}}} with 7 entries:
   "ticker"    => "AAPL"
-  "timestamp" => [DateTime("2022-12-29T14:30:00"), DateTime("2022-12-29T16:00:00"), DateTime("2022-12-29T17:30:00"), DateTime("2022-12-29T19:00:00"), DateTime("2022-12-29T20:30:00"), DateTime("2022-12-29T21:00:00")]   
+  "timestamp" => [DateTime("2022-12-29T14:30:00"), DateTime("2022-12-29T16:00:00"), DateTime("2022-12-29T17:30:00"), DateTime("2022-12-29T19:00:00"), DateTime("2022-12-29T20:30:00"), DateTime("2022-12-29T21:00:00")]
   "open"      => [127.99, 129.96, 129.992, 130.035, 129.95, 129.61]
   "high"      => [129.98, 130.481, 130.098, 130.24, 130.22, 129.61]
   "low"       => [127.73, 129.44, 129.325, 129.7, 129.56, 129.61]
@@ -81,8 +81,8 @@ OrderedDict{String, Union{String,Vector{DateTime},Vector{Float64}}} with 7 entri
 julia> using DataFrames
 julia> get_prices("AAPL", range="1d", interval="90m") |> DataFrame
 6×7 DataFrame
- Row │ ticker  timestamp            open     high     low      close    vol       
-     │ String  DateTime             Float64  Float64  Float64  Float64  Float64   
+ Row │ ticker  timestamp            open     high     low      close    vol
+     │ String  DateTime             Float64  Float64  Float64  Float64  Float64
 ─────┼────────────────────────────────────────────────────────────────────────────
    1 │ AAPL    2022-12-29T14:30:00  127.99   129.98   127.73   129.954  2.9101646e7
    2 │ AAPL    2022-12-29T16:00:00  129.96   130.481  129.44   129.998  1.4058713e7
@@ -116,8 +116,8 @@ julia> using DataFrames
 julia> data = get_prices.(["AAPL","NFLX"], range="1d", interval="90m");
 julia> vcat([DataFrame(i) for i in data]...)
 12×7 DataFrame
- Row │ ticker  timestamp            open     high     low      close    vol       
-     │ String  DateTime             Float64  Float64  Float64  Float64  Float64   
+ Row │ ticker  timestamp            open     high     low      close    vol
+     │ String  DateTime             Float64  Float64  Float64  Float64  Float64
 ─────┼────────────────────────────────────────────────────────────────────────────
    1 │ AAPL    2022-12-29T14:30:00  127.99   129.98   127.73   129.954  2.9101646e7
    2 │ AAPL    2022-12-29T16:00:00  129.96   130.481  129.44   129.998  1.4058713e7
@@ -132,14 +132,13 @@ julia> vcat([DataFrame(i) for i in data]...)
   11 │ NFLX    2022-12-29T20:30:00  290.76   292.33   290.54   291.12   1.121821e6
   12 │ NFLX    2022-12-29T21:00:00  291.12   291.12   291.12   291.12   0.0
 ```
-""" 
-function get_prices(symbol::String, startdt::Int, enddt::Int; 
-                    interval::String="1d", prepost::Bool=false, 
-                    autoadjust::Bool=true, timeout::Int=10, 
-                    throw_error::Bool=false, exchange_local_time::Bool=false, 
+"""
+function get_prices(symbol::String, startdt::Int, enddt::Int;
+                    interval::String="1d", prepost::Bool=false,
+                    autoadjust::Bool=true, timeout::Int=10,
+                    throw_error::Bool=false, exchange_local_time::Bool=false,
                     divsplits::Bool=false, wait::Float64=0.0)
-    
-    _set_cookies_and_crumb()
+
     validintervals = ("1m","2m","5m","15m","30m","60m","90m","1h","1d","5d","1wk","1mo","3mo")
     @assert interval in validintervals "The chosen interval is not supported. Choose one from: $(join(validintervals, ", "))"
 
@@ -156,11 +155,11 @@ function get_prices(symbol::String, startdt::Int, enddt::Int;
                 return OrderedDict{String, Union{String,Vector{DateTime},Vector{Float64}}}()
             end
         end
-        
+
         # Handle minute data for periods longer than 7 days
         if enddt - startdt > 7 * 86400
-            return _get_minute_prices(symbol, startdt, enddt, interval; prepost=prepost, autoadjust=autoadjust, 
-                                      timeout=timeout, throw_error=throw_error, exchange_local_time=exchange_local_time, 
+            return _get_minute_prices(symbol, startdt, enddt, interval; prepost=prepost, autoadjust=autoadjust,
+                                      timeout=timeout, throw_error=throw_error, exchange_local_time=exchange_local_time,
                                       wait=wait)
         end
     end
@@ -173,30 +172,11 @@ function get_prices(symbol::String, startdt::Int, enddt::Int;
         "events" => divsplits ? "div,splits" : ""
     )
     url = _build_url("$(_BASE_URL_)/v8/finance/chart/$(uppercase(symbol))", parameters)
-    try
-        headers = _make_headers(; cookies=_COOKIE)
-        res = _request(url; headers=headers, timeout=timeout)
-        return _process_response(res.body, symbol, interval, autoadjust, exchange_local_time, divsplits)
-    catch e
-        msg = if e isa ResponseError
-            if e.status == 404
-                "$symbol is not a valid Symbol."
-            elseif e.status == 429
-                "Too many requests. Please wait before retrying."
-            else
-                _parse_yahoo_error(e.body, e.status, symbol)
-            end
-        else
-            "An error occurred: $(sprint(showerror, e))"
-        end
 
-        if throw_error
-            error(msg)
-        else
-            @warn msg
-            return OrderedDict{String, Union{String,Vector{DateTime},Vector{Float64}}}()
-        end
-    end
+    resp = _yahoo_get(url, symbol; timeout=timeout, throw_error=throw_error,
+                      empty_result=OrderedDict{String, Union{String,Vector{DateTime},Vector{Float64}}}())
+    isnothing(resp) && return OrderedDict{String, Union{String,Vector{DateTime},Vector{Float64}}}()
+    return _process_response(resp.body, symbol, interval, autoadjust, exchange_local_time, divsplits)
 end
 
 
@@ -205,9 +185,9 @@ end
 function _get_minute_prices(symbol::String, startdt::Int, enddt::Int, interval::String; wait::Float64=0.0, kwargs...)
     chunk_size = 7 * 86400  # 7 days in seconds
     chunks = [(t, min(t + chunk_size - 1, enddt)) for t in startdt:chunk_size:enddt]
-    
+
     results = OrderedDict{String, Union{String,Vector{DateTime},Vector{Float64}}}()
-    
+
     for (i, (chunk_start, chunk_end)) in enumerate(chunks)
         if i > 1
             sleep(wait)  # Wait before making consecutive API calls
@@ -225,7 +205,7 @@ function _get_minute_prices(symbol::String, startdt::Int, enddt::Int, interval::
             end
         end
     end
-    
+
     return results
 end
 
@@ -235,7 +215,7 @@ function _process_response(response_body, symbol, interval, autoadjust, exchange
     time_offset = exchange_local_time ? res.meta.gmtoffset : 0
 
     haskey(res, "timestamp") ? timestamps = res.timestamp : error("No historical data for this timeperiod of $symbo")
-    
+
     idx = length(timestamps) - length(unique(timestamps)) == 1 ? (1:length(timestamps)-1) : eachindex(timestamps)
 
     d = OrderedDict{String, Union{String,Vector{DateTime},Vector{Float64}}}(
@@ -247,7 +227,7 @@ function _process_response(response_body, symbol, interval, autoadjust, exchange
     for field in (:open, :high, :low, :close)
         d[string(field)] = _clean_prices_nothing(getproperty(quote_data, field)[idx])
     end
-    
+
 
     if !in(interval, ("1m","2m","5m","15m","30m","60m","90m"))
         d["adjclose"] = _clean_prices_nothing(res.indicators.adjclose[1].adjclose[idx])
@@ -266,9 +246,9 @@ function _process_response(response_body, symbol, interval, autoadjust, exchange
         d["div"] = zeros(Float64, length(idx))
         d["split_numerator"] = ones(Float64, length(idx))
         d["split_denominator"] = ones(Float64, length(idx))
-        
+
         first_timestamp = minimum(d["timestamp"])
-        
+
         if haskey(res.events, :dividends)
             for v in values(res.events.dividends)
                 div_date = unix2datetime(v.date + time_offset)
@@ -276,7 +256,7 @@ function _process_response(response_body, symbol, interval, autoadjust, exchange
                 d["div"][d["timestamp"] .== div_date] .= v.amount
             end
         end
-        
+
         if haskey(res.events, :splits)
             for v in values(res.events.splits)
                 split_date = unix2datetime(v.date + time_offset)
@@ -285,7 +265,7 @@ function _process_response(response_body, symbol, interval, autoadjust, exchange
                 d["split_denominator"][d["timestamp"] .== split_date] .= v.denominator
             end
         end
-        
+
         d["split_ratio"] = d["split_numerator"] ./ d["split_denominator"]
     elseif divsplits && interval != "1d"
         @warn "Dividends and splits will not be returned. Please set the interval to 1d!"
@@ -322,11 +302,11 @@ function _get_prices_by_range(symbol::String, range::String; interval::String="1
 end
 
 # Convenient Method
-function get_prices(symbol::String; 
-                    startdt::Union{Date,DateTime,AbstractString}="", 
-                    enddt::Union{Date,DateTime,AbstractString}="", 
-                    range::String="5d", 
-                    interval::String="1d", 
+function get_prices(symbol::String;
+                    startdt::Union{Date,DateTime,AbstractString}="",
+                    enddt::Union{Date,DateTime,AbstractString}="",
+                    range::String="5d",
+                    interval::String="1d",
                     kwargs...)
     if startdt == "" && enddt == ""
         return _get_prices_by_range(symbol, range; interval=interval, kwargs...)
@@ -341,7 +321,7 @@ function get_prices(symbol::String;
 end
 
 # Specialized Convenient Method
-get_prices(symbol::String, startdt::T, enddt::T; kwargs...) where T <: Union{Date,DateTime,AbstractString} = 
+get_prices(symbol::String, startdt::T, enddt::T; kwargs...) where T <: Union{Date,DateTime,AbstractString} =
     get_prices(symbol; startdt=startdt, enddt=enddt, kwargs...)
 
 
@@ -386,8 +366,8 @@ OrderedDict{String, Union{String,Vector{DateTime},Vector{Int},Vector{Float64}}} 
 julia> using DataFrames
 julia> get_splits("AAPL", startdt = "2000-01-01", enddt = "2020-01-01") |> DataFrame
 3×5 DataFrame
- Row │ ticker  timestamp            numerator  denominator  ratio   
-     │ String  DateTime             Int64      Int64        Float64 
+ Row │ ticker  timestamp            numerator  denominator  ratio
+     │ String  DateTime             Int64      Int64        Float64
 ─────┼──────────────────────────────────────────────────────────────
    1 │ AAPL    2000-06-21T13:30:00          2            1      2.0
    2 │ AAPL    2005-02-28T14:30:00          2            1      2.0
@@ -405,8 +385,8 @@ julia> data = get_splits.(["AAPL", "F"], startdt = "2000-01-01", enddt = "2020-0
 
 julia> vcat([DataFrame(i) for i in data]...)
 5×5 DataFrame
- Row │ ticker  timestamp            numerator  denominator  ratio   
-     │ String  DateTime             Int64      Int64        Float64 
+ Row │ ticker  timestamp            numerator  denominator  ratio
+     │ String  DateTime             Int64      Int64        Float64
 ─────┼──────────────────────────────────────────────────────────────
    1 │ AAPL    2000-06-21T13:30:00          2            1  2.0
    2 │ AAPL    2005-02-28T14:30:00          2            1  2.0
@@ -415,15 +395,14 @@ julia> vcat([DataFrame(i) for i in data]...)
    5 │ F       2000-08-03T13:30:00    1748175      1000000  1.74818
 ```
 """
-function get_splits(symbol::String; 
-                    startdt::Union{Date,DateTime,AbstractString}="", 
+function get_splits(symbol::String;
+                    startdt::Union{Date,DateTime,AbstractString}="",
                     enddt::Union{Date,DateTime,AbstractString}="",
 
                     timeout::Int=10,
                     throw_error::Bool=false,
                     exchange_local_time::Bool=false)
 
-    _set_cookies_and_crumb()
     start_unix = isempty(startdt) ? 0 : _date_to_unix(startdt)
     end_unix = isempty(enddt) ? Int(floor(datetime2unix(now()))) : _date_to_unix(enddt)
 
@@ -435,30 +414,9 @@ function get_splits(symbol::String;
     )
     url = _build_url("$(_BASE_URL_)/v8/finance/chart/$(uppercase(symbol))", parameters)
 
-    try
-        headers = _make_headers(; cookies=_COOKIE)
-        res = _request(url; headers=headers, timeout=timeout)
-        return _process_splits_response(res.body, symbol, exchange_local_time)
-    catch e
-        msg = if e isa ResponseError
-            if e.status == 404
-                "$(symbol) is not a valid Symbol."
-            elseif e.status == 429
-                "Too many requests. Please wait before retrying."
-            else
-                _parse_yahoo_error(e.body, e.status, symbol)
-            end
-        else
-            "An error occurred: $(sprint(showerror, e))"
-        end
-
-        if throw_error
-            error(msg)
-        else
-            @warn msg
-            return _empty_splits_dict(symbol)
-        end
-    end
+    resp = _yahoo_get(url, symbol; timeout=timeout, throw_error=throw_error)
+    isnothing(resp) && return _empty_splits_dict(symbol)
+    return _process_splits_response(resp.body, symbol, exchange_local_time)
 end
 
 function _process_splits_response(response_body, symbol, exchange_local_time)
@@ -537,8 +495,8 @@ OrderedDict{String, Union{String,Vector{DateTime},Vector{Float64}}} with 3 entri
 julia> using DataFrames
 julia> get_dividends("AAPL", startdt = "2021-01-01", enddt="2022-01-01") |> DataFrame
 4×3 DataFrame
- Row │ ticker  timestamp            div     
-     │ String  DateTime             Float64 
+ Row │ ticker  timestamp            div
+     │ String  DateTime             Float64
 ─────┼───────────────────────────────────────
    1 │ AAPL    2021-02-05T14:30:00    0.205
    2 │ AAPL    2021-05-07T13:30:00    0.22
@@ -557,8 +515,8 @@ julia> data = get_dividends.(["AAPL", "F"], startdt = "2021-01-01", enddt="2022-
 
 julia> vcat([DataFrame(i) for i in data]...)
 5×3 DataFrame
- Row │ ticker  timestamp            div     
-     │ String  DateTime             Float64 
+ Row │ ticker  timestamp            div
+     │ String  DateTime             Float64
 ─────┼───────────────────────────────────────
    1 │ AAPL    2021-02-05T14:30:00    0.205
    2 │ AAPL    2021-05-07T13:30:00    0.22
@@ -567,14 +525,13 @@ julia> vcat([DataFrame(i) for i in data]...)
    5 │ F       2021-11-18T14:30:00    0.1
 ```
 """
-function get_dividends(symbol::String; 
-                       startdt::Union{Date,DateTime,AbstractString}="", 
+function get_dividends(symbol::String;
+                       startdt::Union{Date,DateTime,AbstractString}="",
                        enddt::Union{Date,DateTime,AbstractString}="",
                        timeout::Int=10,
                        throw_error::Bool=false,
                        exchange_local_time::Bool=false)
 
-    _set_cookies_and_crumb()
     start_unix = isempty(startdt) ? 0 : _date_to_unix(startdt)
     end_unix = isempty(enddt) ? Int(floor(datetime2unix(now()))) : _date_to_unix(enddt)
 
@@ -586,30 +543,9 @@ function get_dividends(symbol::String;
     )
     url = _build_url("$(_BASE_URL_)/v8/finance/chart/$(uppercase(symbol))", parameters)
 
-    try
-        headers = _make_headers(; cookies=_COOKIE)
-        res = _request(url; headers=headers, timeout=timeout)
-        return _process_dividends_response(res.body, symbol, exchange_local_time)
-    catch e
-        msg = if e isa ResponseError
-            if e.status == 404
-                "$(symbol) is not a valid Symbol."
-            elseif e.status == 429
-                "Too many requests. Please wait before retrying."
-            else
-                _parse_yahoo_error(e.body, e.status, symbol)
-            end
-        else
-            "An error occurred: $(sprint(showerror, e))"
-        end
-
-        if throw_error
-            error(msg)
-        else
-            @warn msg
-            return _empty_dividends_dict(symbol)
-        end
-    end
+    resp = _yahoo_get(url, symbol; timeout=timeout, throw_error=throw_error)
+    isnothing(resp) && return _empty_dividends_dict(symbol)
+    return _process_dividends_response(resp.body, symbol, exchange_local_time)
 end
 
 function _process_dividends_response(response_body, symbol, exchange_local_time)

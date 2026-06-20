@@ -1,35 +1,48 @@
-_PROXY_SETTINGS = (;proxy = nothing,auth = Dict())
-"""
-    create_proxy_settings(p::AbstractString,user=nothing,password=nothing)
+# ─────────────────────────────────────────────────────────────────────────────
+# Proxy_Auth.jl — Proxy configuration (backed by _SESSION)
+# ─────────────────────────────────────────────────────────────────────────────
 
-Sets the global proxy variable `_PROXY_SETTINGS::NamedTuple`. This `NamedTuple` contains a `proxy` and a `auth` field. These fields default to `nothing` and and empty `Dict` respectively.
+# Legacy compat — existing code may reference _PROXY_SETTINGS
+_PROXY_SETTINGS = (;proxy = nothing, auth = Dict())
+
+"""
+    create_proxy_settings(p::AbstractString, user=nothing, password=nothing)
+
+Configures proxy settings for all Yahoo Finance requests.
 
 ## Arguments
-
- * p`::String` (Required) of the form: "http://proxy.xyz.com:8080"
-
- * user`::String` Username (optional) only required if proxy requires authentication. Defaults to `nothing` (no authentication needed)
-
- * password`::String` The password corresponding to the Username. Defaults to `nothing` (no authentication needed) 
-
+ * `p::String` (Required) — proxy URL, e.g. "http://proxy.xyz.com:8080"
+ * `user::String` — username (optional, for authenticated proxies)
+ * `password::String` — password (optional, for authenticated proxies)
 """
-function create_proxy_settings(p::AbstractString,user=nothing,password=nothing)
-    if isnothing(user) || isnothing(password)
-        global _PROXY_SETTINGS = (;proxy = p,auth = Dict())
-    else
-        global _PROXY_SETTINGS = (;proxy=p,auth=Dict("Proxy-Authorization" =>  ("Basic " * Base64.base64encode(user * ":" * password)))) 
+function create_proxy_settings(p::AbstractString, user=nothing, password=nothing)
+    lock(_SESSION.lock) do
+        _SESSION.proxy = p
+        if isnothing(user) || isnothing(password)
+            _SESSION.proxy_auth = Dict{String,String}()
+        else
+            _SESSION.proxy_auth = Dict("Proxy-Authorization" => "Basic " * Base64.base64encode(user * ":" * password))
+        end
+        # Update legacy global for backward compat
+        global _PROXY_SETTINGS = (;proxy=_SESSION.proxy, auth=_SESSION.proxy_auth)
+        # Force session renewal with new proxy
+        _SESSION.initialized = false
     end
     return nothing
 end
 
-
-
 """
     clear_proxy_settings()
 
-Clears the proxy settings by setting them back to their default (no proxy configuration).    
+Clears proxy configuration, reverting to direct connections.
 """
 function clear_proxy_settings()
-    global _PROXY_SETTINGS = (;proxy = nothing,auth = Dict())
+    lock(_SESSION.lock) do
+        _SESSION.proxy = nothing
+        _SESSION.proxy_auth = Dict{String,String}()
+        global _PROXY_SETTINGS = (;proxy = nothing, auth = Dict())
+        _SESSION.initialized = false
+    end
     return nothing
 end
+

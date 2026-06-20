@@ -1,8 +1,8 @@
 # YFinance.jl — Improvements & Recommendations
 
-## Completed: HTTP.jl → Downloads.jl Migration
+## Completed Improvements
 
-### Why Downloads.jl is better for this package
+### 1. HTTP.jl → Downloads.jl Migration ✅
 
 | Factor | HTTP.jl | Downloads.jl |
 |--------|---------|--------------|
@@ -14,88 +14,74 @@
 
 The root cause of the package being broken was HTTP.jl failing to resolve in the Manifest (incompatible compat bound `HTTP = "1.2"` with Julia 1.12). Switching to Downloads.jl eliminates this class of problems entirely.
 
-### What changed
-- Replaced all `HTTP.get()` calls with a custom `_request()` wrapper over `Downloads.request()`
-- Cookie management is now handled manually via request/response headers
-- Query parameters are built manually via `_build_url()`
-- Added `_parse_yahoo_error()` for robust error body parsing (handles both JSON and plain-text error responses)
-- All endpoints now pass cookies (Yahoo now requires authentication for most endpoints)
+### 2. Centralized Network Layer with YahooSession ✅
 
----
+Implemented a `YahooSession` mutable singleton struct in `src/network.jl` that manages:
+- Cookie and crumb storage
+- Request headers
+- Proxy settings
+- Thread-safe access via `ReentrantLock`
+- Lazy initialization (session created on first request)
+- Automatic session renewal on 401/403 errors
 
-## Recommended Improvements
-
-### 1. Rate Limiting / Request Throttling (High Priority)
-
-Yahoo Finance aggressively rate-limits requests (HTTP 429). The package needs built-in throttling.
-
-**Suggestion:**
-```julia
-const _LAST_REQUEST_TIME = Ref(0.0)
-const _MIN_REQUEST_INTERVAL = 1.0  # seconds
-
-function _throttled_request(url; kwargs...)
-    elapsed = time() - _LAST_REQUEST_TIME[]
-    if elapsed < _MIN_REQUEST_INTERVAL
-        sleep(_MIN_REQUEST_INTERVAL - elapsed)
-    end
-    _LAST_REQUEST_TIME[] = time()
-    return _request(url; kwargs...)
-end
-```
-
-### 2. Retry Logic with Exponential Backoff (High Priority)
-
-When hitting 429 errors, the package should automatically retry with backoff instead of returning empty results.
-
-**Suggestion:**
-```julia
-function _request_with_retry(url; max_retries=3, kwargs...)
-    for attempt in 1:max_retries
-        try
-            return _request(url; kwargs...)
-        catch e
-            if e isa ResponseError && e.status == 429 && attempt < max_retries
-                sleep(2^attempt)  # exponential backoff: 2s, 4s, 8s
-                continue
-            end
-            rethrow()
-        end
-    end
-end
-```
-
-### 3. Better Cookie/Session Management (Medium Priority)
-
-Currently, `_set_cookies_and_crumb()` uses global variables (`_COOKIE`, `_CRUMB`, `_HEADER`). This has issues:
-- Not thread-safe
-- No cookie expiration tracking
-- No automatic renewal on 401/403
-
-**Suggestion:** Create a `YahooSession` struct:
 ```julia
 mutable struct YahooSession
-    cookie::Dict{String,String}
+    cookie::String
     crumb::String
-    header::Dict{String,String}
-    last_renewed::Float64
+    header::Vector{Pair{String,String}}
+    proxy::String
+    proxy_auth::String
+    last_request_time::Float64
+    min_request_interval::Float64  # 0.3s default
+    max_retries::Int               # 3 default
+    retry_base_delay::Float64      # 1.5s default
+    initialized::Bool
     lock::ReentrantLock
 end
 ```
 
-### 4. Test Suite Improvements (Medium Priority)
+### 3. Rate Limiting / Request Throttling ✅
 
-The test suite makes rapid-fire API calls that trigger rate limiting. Improvements needed:
+Built-in throttling with a configurable minimum interval (300ms default) between requests. Prevents Yahoo Finance 429 rate-limit errors automatically.
 
-- Add longer `sleep()` intervals between test sections (5-10s instead of 2s)
-- Use `@testset` with `try-catch` around API calls to handle transient failures gracefully
-- Add a test utility that retries on 429 errors
-- Consider mocking API responses for unit tests (test data processing separately from network calls)
-- The precompilation workload already tests `_process_response` — extend this pattern
+### 4. Retry Logic with Exponential Backoff ✅
 
-### 5. Connection Pooling / Session Reuse (Low Priority)
+All requests automatically retry up to 3 times with exponential backoff (1.5s base delay). Handles:
+- HTTP 429 (Too Many Requests)
+- HTTP 401/403 (triggers session renewal before retry)
+- Network errors (transient connectivity issues)
 
-Currently each request creates a new connection. Using a persistent `Downloads.Downloader` instance could improve performance:
+### 5. Standardized Error Handling via `_yahoo_get()` ✅
+
+All endpoint modules now use a single `_yahoo_get(url)` function that:
+- Ensures the session is initialized
+- Makes the rate-limited, retried request
+- Parses the JSON response
+- Returns a standardized `(success::Bool, data)` tuple
+- Handles both JSON and plain-text error bodies gracefully
+
+This eliminated duplicated try/catch blocks across all endpoint files.
+
+### 6. Backward-Compatible API ✅
+
+All public-facing functions maintain their original signatures. Internal refactoring is transparent to users. Legacy globals (`_PROXY_SETTINGS`, `_COOKIE`, `_CRUMB`) are maintained as thin wrappers.
+
+---
+
+## Remaining Improvements
+
+### 1. Test Suite Hardening (Medium Priority)
+
+The test suite (59 tests, all passing) relies entirely on live API calls. Improvements:
+
+- **Mock responses for unit tests**: Test data processing logic separately from network calls
+- **Retry-aware test helpers**: Wrap API calls in test utilities that tolerate transient failures
+- **CI-friendly configuration**: Add environment variable to increase sleep intervals in CI
+- **Separate integration vs unit tests**: Unit tests should be fast and network-independent
+
+### 2. Connection Pooling / Downloader Reuse (Low Priority)
+
+Currently each request creates a new connection. Using a persistent `Downloads.Downloader` instance could improve latency for bulk operations:
 
 ```julia
 const _DOWNLOADER = Ref{Union{Nothing,Downloads.Downloader}}(nothing)
@@ -108,44 +94,55 @@ function _get_downloader()
 end
 ```
 
-### 6. Proxy Support via Environment Variables (Low Priority)
+### 3. Proxy Support via Environment Variables (Low Priority)
 
-The current proxy implementation uses a custom `_PROXY_SETTINGS` struct. Downloads.jl (libcurl) natively supports `HTTP_PROXY`/`HTTPS_PROXY` environment variables. Consider supporting both:
+Downloads.jl (libcurl) natively supports `HTTP_PROXY`/`HTTPS_PROXY` environment variables. Consider falling back to these when no explicit proxy is configured:
 
 ```julia
 function _get_effective_proxy()
-    if !isnothing(_PROXY_SETTINGS[:proxy])
-        return _PROXY_SETTINGS[:proxy]
+    if !isempty(_SESSION.proxy)
+        return _SESSION.proxy
     end
-    return get(ENV, "HTTPS_PROXY", get(ENV, "HTTP_PROXY", nothing))
+    return get(ENV, "HTTPS_PROXY", get(ENV, "HTTP_PROXY", ""))
 end
 ```
 
-### 7. Type Stability Improvements (Low Priority)
+### 4. Type Stability Improvements (Low Priority)
 
-Several functions return `OrderedDict{String, Any}` which is type-unstable. Consider using parametric types or documented return structures to enable better type inference downstream.
+Several functions return `OrderedDict{String, Any}` which is type-unstable. Consider:
+- Defining result structs for common return types (e.g., `PriceData`, `OptionChain`)
+- Using parametric types where possible
+- Documenting return structures for downstream type inference
 
-### 8. Error Handling Consistency (Medium Priority)
-
-Some functions (e.g., `get_Fundamental`) don't handle non-JSON error responses gracefully. The `_parse_yahoo_error` helper should be used consistently across all endpoints.
-
-### 9. Documentation Updates (Low Priority)
+### 5. Documentation Updates (Low Priority)
 
 - Update docs to reflect the removal of the HTTP.jl dependency
-- Document the cookie/crumb authentication requirement
+- Document the cookie/crumb authentication flow
 - Add troubleshooting section for rate limiting issues
-- Update `VersionChanges.md` with the Downloads.jl migration
+- Update `VersionChanges.md` with the architectural changes
+- Document thread-safety guarantees
 
-### 10. Julia Version Compat (Low Priority)
+### 6. Julia Version Compat (Low Priority)
 
-The `[compat]` section sets `julia = "1.6"` but the code uses features available since 1.6. Consider bumping to `julia = "1.9"` or later since Downloads.jl has improved significantly in newer versions.
+The `[compat]` section sets `julia = "1.6"`. Consider bumping to `julia = "1.9"` or later since Downloads.jl has improved significantly in newer versions and the user base has largely migrated.
 
 ---
 
-## Summary
+## Architecture Summary
 
-The most impactful improvements (in priority order):
-1. **Rate limiting/throttling** — prevents 429 errors automatically
-2. **Retry with backoff** — graceful recovery from transient failures
-3. **Test suite hardening** — reliable CI without flaky API-dependent tests
+```
+┌─────────────────────────────────────────────────┐
+│  Public API (get_prices, get_Options, etc.)      │
+├─────────────────────────────────────────────────┤
+│  _yahoo_get(url) — standardized request+parse   │
+├─────────────────────────────────────────────────┤
+│  _request(url) — rate-limited + retry + renew   │
+├─────────────────────────────────────────────────┤
+│  _raw_request(url) — Downloads.request wrapper  │
+├─────────────────────────────────────────────────┤
+│  YahooSession singleton — state + config        │
+└─────────────────────────────────────────────────┘
+```
+
+All network logic is centralized in `src/network.jl`. Endpoint modules are thin layers that build URLs and process JSON responses.
 4. **Session management** — thread-safe, auto-renewing authentication

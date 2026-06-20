@@ -6,13 +6,13 @@ The call and put options OrderedCollections.OrderedDict can readily be transform
 
 # Arguments
 
- * smybol`::String` is a ticker (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)  
+ * smybol`::String` is a ticker (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)
 
  *  throw_error`::Bool` defaults to `false`. If set to true the function errors when the ticker is not valid. Else a warning is given and an empty OrderedCollections.OrderedDict is returned.
 
  *  experitation_date`::Union{Date,Nothing}` defaults to `nothing`. If set to a date the API request is made for a particular date.
 
-# Examples  
+# Examples
 ```julia-repl
 julia> get_Options("AAPL")
 OrderedDict{String, OrderedDict{String, Vector{Any}}} with 2 entries:
@@ -27,9 +27,9 @@ julia> get_Options("AAPL")["calls"] |> DataFrame
 ─────┼────────────────────────────────────────────────────────────────────────────────────
    1 │ AAPL221230C00050000  50      USD       79.85      0       0              1        ⋯
    2 │ AAPL221230C00055000  55      USD       72.85      0       0              1
-   3 │ AAPL221230C00060000  60      USD       66.4       0       0              19        
+   3 │ AAPL221230C00060000  60      USD       66.4       0       0              19
   ⋮  │          ⋮             ⋮        ⋮          ⋮        ⋮           ⋮           ⋮     ⋱
-  71 │ AAPL221230C00230000  230     USD       0.02       0       0              missing   
+  71 │ AAPL221230C00230000  230     USD       0.02       0       0              missing
   72 │ AAPL221230C00250000  250     USD       0.01       0       0              2        ⋯
                                                              9 columns and 67 rows omitted
 
@@ -42,7 +42,7 @@ julia> vcat( [DataFrame(i) for i in values(data)]...)
 ─────┼────────────────────────────────────────────────────────────────────────────────────
    1 │ AAPL221230C00050000  50      USD       79.85      0       0              1        ⋯
    2 │ AAPL221230C00055000  55      USD       72.85      0       0              1
-   3 │ AAPL221230C00060000  60      USD       66.4       0       0              19        
+   3 │ AAPL221230C00060000  60      USD       66.4       0       0              19
   ⋮  │          ⋮             ⋮        ⋮          ⋮        ⋮           ⋮          ⋮      ⋱
  140 │ AAPL221230P00225000  225     USD       94.65      0       0              1
  141 │ AAPL221230P00230000  230     USD       99.65      0       0              1        ⋯
@@ -50,8 +50,8 @@ julia> vcat( [DataFrame(i) for i in values(data)]...)
 ```
 """
 function get_Options(symbol::String; throw_error=false, expiration_date::Union{Date,Nothing}=nothing)
-    _set_cookies_and_crumb()
-    if isequal(_CRUMB,"")
+    _ensure_session!()
+    if isempty(_SESSION.crumb)
         @warn "This item requires a crumb but a crumb could not be successfully retrieved!"
         return nothing
     end
@@ -63,7 +63,7 @@ function get_Options(symbol::String; throw_error=false, expiration_date::Union{D
          if throw_error
              error("$old_symbol is not a valid Symbol!")
          else
-             @warn "$old_symbol is not a valid Symbol an empy OrderedCollections.OrderedDict was returned!" 
+             @warn "$old_symbol is not a valid Symbol an empy OrderedCollections.OrderedDict was returned!"
              return OrderedCollections.OrderedDict()
          end
      else
@@ -71,13 +71,16 @@ function get_Options(symbol::String; throw_error=false, expiration_date::Union{D
      end
 
     # Construct API request
-    query_params = Dict("formatted" => "false", "crumb" => _CRUMB)
+    query_params = Dict("formatted" => "false", "crumb" => _SESSION.crumb)
     if !isnothing(expiration_date)
         query_params["date"] = string(_date_to_unix(expiration_date))
     end
 
-    res = _request(_build_url("https://query2.finance.yahoo.com/v7/finance/options/$(symbol)", query_params); headers=_make_headers(; cookies=_COOKIE), timeout=10, throw_on_error=false)
-    res = JSON3.read(res.body)
+    url = _build_url("https://query2.finance.yahoo.com/v7/finance/options/$(symbol)", query_params)
+    resp = _yahoo_get(url, symbol; timeout=10, throw_error=throw_error)
+    isnothing(resp) && return OrderedCollections.OrderedDict()
+
+    res = JSON3.read(resp.body)
     puts = res.optionChain.result[1].options[1].puts
     calls = res.optionChain.result[1].options[1].calls
     res_p = OrderedCollections.OrderedDict(
