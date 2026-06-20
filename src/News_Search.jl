@@ -233,9 +233,12 @@ function search_news(str::String;lang="en-us")
         "zh-tw"=>("zh-TW","TW")
     )
     @assert in(lang, keys(lang_opt)) "Language not supported choose one from: $(join(keys(lang_opt),", "))"
+	_set_cookies_and_crumb()
 	yfinance_search_link = "https://query2.finance.yahoo.com/v1/finance/search"
 	query = Dict("q" => str, "lang"=>lang_opt[lang][1],"region"=>lang_opt[lang][2])
-	response = HTTP.get(yfinance_search_link,query = query)
+	url = _build_url(yfinance_search_link, query)
+	headers = _make_headers(; cookies=_COOKIE)
+	response = _request(url; headers=headers, timeout=10, throw_on_error=false)
 	repsonse_parsed = JSON3.read(response.body).news
     news = NewsItem[]
     for i in repsonse_parsed

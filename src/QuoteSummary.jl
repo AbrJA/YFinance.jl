@@ -99,7 +99,7 @@ function get_quoteSummary(symbol::String; item=nothing,throw_error=false)
         q= Dict("formatted" => "false","modules" => join(item,","),"crumb"=>_CRUMB)
     end
     
-    res = HTTP.get("https://query2.finance.yahoo.com/v10/finance/quoteSummary/$(symbol)",query =q, proxy=_PROXY_SETTINGS[:proxy],headers=merge(_HEADER,_PROXY_SETTINGS[:auth]),cookies=_COOKIE)    
+    res = _request(_build_url("https://query2.finance.yahoo.com/v10/finance/quoteSummary/$(symbol)", q); headers=_make_headers(; cookies=_COOKIE), timeout=10, throw_on_error=false)
     res = JSON3.read(res.body)
     if typeof(item) <: AbstractString
         return res.quoteSummary.result[1][Symbol(item)]

@@ -34,8 +34,10 @@ julia> get_all_symbols("NYSE")
 """
 function get_all_symbols(market::T)::Vector{T} where {T<:String}
   uppercase(market) in MARKETS || throw(ArgumentError("Invalid market. Supported markets are $(MARKETS)"))
+  _set_cookies_and_crumb()
   url = "https://dumbstockapi.com/stock?format=tickers-only&exchange=$market"
-  response = HTTP.request("GET", url)
+  headers = _make_headers(; cookies=_COOKIE)
+  response = _request(url; headers=headers, timeout=10, throw_on_error=false)
   Symbols_string::T = String(response.body)
   splitted::Vector{T} = split(Symbols_string, ",")
   pured::Vector{T} = replace.(splitted, r"\"" => "")
@@ -184,9 +186,12 @@ Exch.:   NYSEArca (PCX)
 ```
 """
 function get_symbols(search_term::String)
+  _set_cookies_and_crumb()
   yfinance_search_link = "https://query2.finance.yahoo.com/v1/finance/search"
   query = Dict("q" => search_term)
-  response = HTTP.get(yfinance_search_link,query = query)
+  url = _build_url(yfinance_search_link, query)
+  headers = _make_headers(; cookies=_COOKIE)
+  response = _request(url; headers=headers, timeout=10, throw_on_error=false)
   repsonse_parsed = JSON3.read(response.body).quotes
    quotes = YahooSearchItem[]
    for i in repsonse_parsed

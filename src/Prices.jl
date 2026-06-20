@@ -139,6 +139,7 @@ function get_prices(symbol::String, startdt::Int, enddt::Int;
                     throw_error::Bool=false, exchange_local_time::Bool=false, 
                     divsplits::Bool=false, wait::Float64=0.0)
     
+    _set_cookies_and_crumb()
     validintervals = ("1m","2m","5m","15m","30m","60m","90m","1h","1d","5d","1wk","1mo","3mo")
     @assert interval in validintervals "The chosen interval is not supported. Choose one from: $(join(validintervals, ", "))"
 
@@ -171,29 +172,19 @@ function get_prices(symbol::String, startdt::Int, enddt::Int;
         "includePrePost" => prepost,
         "events" => divsplits ? "div,splits" : ""
     )
-    url = "$(_BASE_URL_)/v8/finance/chart/$(uppercase(symbol))"
+    url = _build_url("$(_BASE_URL_)/v8/finance/chart/$(uppercase(symbol))", parameters)
     try
-        res = HTTP.get(url, query=parameters, readtimeout=timeout, proxy=_PROXY_SETTINGS[:proxy], headers=_PROXY_SETTINGS[:auth])
+        headers = _make_headers(; cookies=_COOKIE)
+        res = _request(url; headers=headers, timeout=timeout)
         return _process_response(res.body, symbol, interval, autoadjust, exchange_local_time, divsplits)
     catch e
-        msg = if e isa HTTP.ExceptionRequest.StatusError
+        msg = if e isa ResponseError
             if e.status == 404
                 "$symbol is not a valid Symbol."
+            elseif e.status == 429
+                "Too many requests. Please wait before retrying."
             else
-                yahoo_error = JSON3.read(e.response.body)
-                if haskey(yahoo_error, :finance)
-                    yahoo_error.finance.error.description
-                elseif haskey(yahoo_error, :chart) && haskey(yahoo_error.chart, :error)
-                    # Parse error dates if available
-                    error_description = yahoo_error.chart.error.description
-                    date_matches = collect(eachmatch(r"(-)?[0-9]{1,}", error_description))
-                    if length(date_matches) >= 2
-                        error_dates = unix2datetime.(parse.(Float64, [m.match for m in date_matches[1:2]]))
-                        "Data doesn't exist for startDate = $(error_dates[1]), endDate = $(error_dates[2]) for $symbol"
-                    else
-                        "An unknown error occurred: $(e.status)"
-                    end
-                end
+                _parse_yahoo_error(e.body, e.status, symbol)
             end
         else
             "An error occurred: $(sprint(showerror, e))"
@@ -427,10 +418,12 @@ julia> vcat([DataFrame(i) for i in data]...)
 function get_splits(symbol::String; 
                     startdt::Union{Date,DateTime,AbstractString}="", 
                     enddt::Union{Date,DateTime,AbstractString}="",
+
                     timeout::Int=10,
                     throw_error::Bool=false,
                     exchange_local_time::Bool=false)
 
+    _set_cookies_and_crumb()
     start_unix = isempty(startdt) ? 0 : _date_to_unix(startdt)
     end_unix = isempty(enddt) ? Int(floor(datetime2unix(now()))) : _date_to_unix(enddt)
 
@@ -440,31 +433,20 @@ function get_splits(symbol::String;
         "interval" => "1d",
         "events" => "splits"
     )
-    url = "$(_BASE_URL_)/v8/finance/chart/$(uppercase(symbol))"
+    url = _build_url("$(_BASE_URL_)/v8/finance/chart/$(uppercase(symbol))", parameters)
 
     try
-        res = HTTP.get(url, query=parameters, readtimeout=timeout, proxy=_PROXY_SETTINGS[:proxy], headers=_PROXY_SETTINGS[:auth])
+        headers = _make_headers(; cookies=_COOKIE)
+        res = _request(url; headers=headers, timeout=timeout)
         return _process_splits_response(res.body, symbol, exchange_local_time)
     catch e
-        msg = if e isa HTTP.ExceptionRequest.StatusError
+        msg = if e isa ResponseError
             if e.status == 404
                 "$(symbol) is not a valid Symbol."
+            elseif e.status == 429
+                "Too many requests. Please wait before retrying."
             else
-                yahoo_error = JSON3.read(e.response.body)
-                if haskey(yahoo_error, :chart) && haskey(yahoo_error.chart, :error)
-                    error_description = yahoo_error.chart.error.description
-                    date_matches = collect(eachmatch(r"(-)?[0-9]{1,}", error_description))
-                    if length(date_matches) >= 2
-                        error_dates = unix2datetime.(parse.(Float64, [m.match for m in date_matches[1:2]]))
-                        "Data doesn't exist for startDate = $(error_dates[1]), endDate = $(error_dates[2]) for $symbol"
-                    else
-                        error_description
-                    end
-                elseif haskey(yahoo_error, :finance)
-                    yahoo_error.finance.error.description
-                else
-                    "An unknown error occurred: $(e.status)"
-                end
+                _parse_yahoo_error(e.body, e.status, symbol)
             end
         else
             "An error occurred: $(sprint(showerror, e))"
@@ -592,6 +574,7 @@ function get_dividends(symbol::String;
                        throw_error::Bool=false,
                        exchange_local_time::Bool=false)
 
+    _set_cookies_and_crumb()
     start_unix = isempty(startdt) ? 0 : _date_to_unix(startdt)
     end_unix = isempty(enddt) ? Int(floor(datetime2unix(now()))) : _date_to_unix(enddt)
 
@@ -601,31 +584,20 @@ function get_dividends(symbol::String;
         "interval" => "1d",
         "events" => "div"
     )
-    url = "$(_BASE_URL_)/v8/finance/chart/$(uppercase(symbol))"
+    url = _build_url("$(_BASE_URL_)/v8/finance/chart/$(uppercase(symbol))", parameters)
 
     try
-        res = HTTP.get(url, query=parameters, readtimeout=timeout, proxy=_PROXY_SETTINGS[:proxy], headers=_PROXY_SETTINGS[:auth])
+        headers = _make_headers(; cookies=_COOKIE)
+        res = _request(url; headers=headers, timeout=timeout)
         return _process_dividends_response(res.body, symbol, exchange_local_time)
     catch e
-        msg = if e isa HTTP.ExceptionRequest.StatusError
+        msg = if e isa ResponseError
             if e.status == 404
                 "$(symbol) is not a valid Symbol."
+            elseif e.status == 429
+                "Too many requests. Please wait before retrying."
             else
-                yahoo_error = JSON3.read(e.response.body)
-                if haskey(yahoo_error, :chart) && haskey(yahoo_error.chart, :error)
-                    error_description = yahoo_error.chart.error.description
-                    date_matches = collect(eachmatch(r"(-)?[0-9]{1,}", error_description))
-                    if length(date_matches) >= 2
-                        error_dates = unix2datetime.(parse.(Float64, [m.match for m in date_matches[1:2]]))
-                        "Data doesn't exist for startDate = $(error_dates[1]), endDate = $(error_dates[2]) for $symbol"
-                    else
-                        error_description
-                    end
-                elseif haskey(yahoo_error, :finance)
-                    yahoo_error.finance.error.description
-                else
-                    "An unknown error occurred: $(e.status)"
-                end
+                _parse_yahoo_error(e.body, e.status, symbol)
             end
         else
             "An error occurred: $(sprint(showerror, e))"

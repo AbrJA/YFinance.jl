@@ -3,7 +3,7 @@ module YFinance
     using Base64 # Required for Authentication
     using OrderedCollections # Required for ordered Dictionary Output. No reordering needed if converting to Tables
     using Dates
-    using HTTP
+    using Downloads
     using JSON3
     using Random
     using PrecompileTools: @setup_workload, @compile_workload
@@ -24,6 +24,7 @@ module YFinance
 
     # Load Order
     include("headers.jl");
+    include("network.jl");
     include("cookie_and_crumb.jl");
     include("Proxy_Auth.jl");
     include("Validity.jl");

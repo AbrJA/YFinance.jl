@@ -55,7 +55,7 @@ function get_ESG(symbol::String;throw_error=false)
     function nothingtomissing(x::Nothing)
         return missing
     end    
-    res = HTTP.get("https://query2.finance.yahoo.com/v1/finance/esgChart",query =q, proxy=_PROXY_SETTINGS[:proxy],headers=_PROXY_SETTINGS[:auth])   
+    res = _request(_build_url("https://query2.finance.yahoo.com/v1/finance/esgChart", q); headers=_make_headers(; cookies=Dict{String,String}()), timeout=10, throw_on_error=false)
     res = JSON3.read(res.body)
     res = res.esgChart.result[1]
     self = OrderedCollections.OrderedDict(

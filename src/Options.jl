@@ -76,7 +76,7 @@ function get_Options(symbol::String; throw_error=false, expiration_date::Union{D
         query_params["date"] = string(_date_to_unix(expiration_date))
     end
 
-    res = HTTP.get("https://query2.finance.yahoo.com/v7/finance/options/$(symbol)", query=query_params, proxy=_PROXY_SETTINGS[:proxy], headers=merge(_PROXY_SETTINGS[:auth], _HEADER), cookies=_COOKIE)    
+    res = _request(_build_url("https://query2.finance.yahoo.com/v7/finance/options/$(symbol)", query_params); headers=_make_headers(; cookies=_COOKIE), timeout=10, throw_on_error=false)
     res = JSON3.read(res.body)
     puts = res.optionChain.result[1].options[1].puts
     calls = res.optionChain.result[1].options[1].calls

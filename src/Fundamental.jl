@@ -472,7 +472,8 @@ function get_Fundamental(symbol::AbstractString, item::AbstractString,interval::
         "formatted" => "false"
     )  
     url = "https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/$(symbol)"
-    res = HTTP.get(url,query = q, proxy=_PROXY_SETTINGS[:proxy],headers=_PROXY_SETTINGS[:auth])
+    headers = _make_headers(; cookies=_COOKIE)
+    res = _request(_build_url(url, q); headers=headers, timeout=10, throw_on_error=false)
     res = JSON3.read(res.body).timeseries.result
     if entire_statement
         result = OrderedCollections.OrderedDict{String,Any}()

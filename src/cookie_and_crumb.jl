@@ -13,9 +13,10 @@ end;
 Retrieves cookies from "https://fc.yahoo.com".
 """
 function get_cookie()
-    res = HTTP.get("https://fc.yahoo.com",cookies=true,redirect=true,_HEADER,status_exception = false)
-    cookies = HTTP.cookies(res)
-    return Dict(cookies[1].name => cookies[1].value)
+    headers = _make_headers(; cookies=Dict{String,String}())
+    resp = _request("https://fc.yahoo.com"; headers=headers, timeout=10, throw_on_error=false)
+    cookies = _parse_set_cookie(resp.headers)
+    return cookies
 end;
 
 """
@@ -30,8 +31,9 @@ function get_crumb()
     else
         _set_cookies_and_crumb()
     end
-    crumb = HTTP.get("https://query2.finance.yahoo.com/v1/test/getcrumb",_HEADER,cookies=_COOKIE)
-    res = String(crumb.body)
+    headers = _make_headers(; cookies=_COOKIE)
+    resp = _request("https://query2.finance.yahoo.com/v1/test/getcrumb"; headers=headers, timeout=10, throw_on_error=false)
+    res = String(resp.body)
     if isequal(res,"")
         @warn "Crumb could not be retrieved. Certain data items will not be available!"
     end

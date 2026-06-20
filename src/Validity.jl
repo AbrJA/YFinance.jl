@@ -13,11 +13,15 @@ Checks if the HTTP request works (status 200) or whether the request errors (com
 
 """
 function validate_symbol(symbol::AbstractString)
+    _set_cookies_and_crumb()
     res = try
         q = Dict("range"=>"1d", "interval"=>"1d")
-        res = HTTP.get("https://query2.finance.yahoo.com/v8/finance/chart/$(symbol)",   query = q, proxy=_PROXY_SETTINGS[:proxy],headers=_PROXY_SETTINGS[:auth]).status
+        url = _build_url("https://query2.finance.yahoo.com/v8/finance/chart/$(symbol)", q)
+        headers = _make_headers(; cookies=_COOKIE)
+        resp = _request(url; headers=headers, timeout=10, throw_on_error=false)
+        resp.status
     catch e 
-        res = e.status 
+        0
     end #end try
         return isequal(res,200) ? true : false
 end #end validate_symbol
