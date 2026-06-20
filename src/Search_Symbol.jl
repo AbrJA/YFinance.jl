@@ -1,21 +1,16 @@
-const MARKETS = ["AMEX", "NASDAQ", "NYSE", "SZSE"] # Supported markets, Add Shenzhen Stock Exchange
+# ─────────────────────────────────────────────────────────────────────────────
+# Search_Symbol.jl — Symbol search and market listing
+# ─────────────────────────────────────────────────────────────────────────────
+
+const MARKETS = ("AMEX", "NASDAQ", "NYSE", "SZSE")
 
 """
-    get_all_symbols(market::T)::Vector{T} where {T<:String}
+    get_all_symbols(market::String) -> Vector{String}
 
-Fetch all the symbols from a given `market`.
+Fetch all ticker symbols from a given market.
 
-# Arguments
-- `market::String`: The market to fetch the symbols from.
-Currently supported markets are:
-  - `AMEX`
-  - `NASDAQ`
-  - `NYSE`
-
-Uses dumbstockapi.com
-
-# Returns
-- `Vector{String}`: A vector of strings containing the symbols.
+# Supported markets
+`AMEX`, `NASDAQ`, `NYSE`, `SZSE`
 
 # Example
 ```julia
@@ -23,179 +18,115 @@ julia> get_all_symbols("NYSE")
 3127-element Vector{String}:
  "A"
  "AA"
- "AAC"
- "AAN"
  ⋮
- "ZTR"
- "ZTS"
- "ZUO"
- "ZYME"
 ```
 """
-function get_all_symbols(market::T)::Vector{T} where {T<:String}
-  uppercase(market) in MARKETS || throw(ArgumentError("Invalid market. Supported markets are $(MARKETS)"))
-  url = "https://dumbstockapi.com/stock?format=tickers-only&exchange=$market"
-  resp = _yahoo_get(url, market; timeout=10, throw_error=true)
-  Symbols_string::T = String(resp.body)
-  splitted::Vector{T} = split(Symbols_string, ",")
-  pured::Vector{T} = replace.(splitted, r"\"" => "")
-  f_idx, l_idx = firstindex(pured), lastindex(pured)
-  pured[f_idx] = replace(pured[f_idx], r"\[" => "")
-  pured[l_idx] = replace(pured[l_idx], r"\]" => "")
-  return pured
-end;
+function get_all_symbols(market::AbstractString)::Vector{String}
+    uppercase(market) in MARKETS || throw(ArgumentError("Invalid market '$(market)'. Supported: $(join(MARKETS, ", "))"))
+    url = "https://dumbstockapi.com/stock?format=tickers-only&exchange=$market"
+    resp = _yahoo_get(url, market; timeout=10, throw_error=true)
+    raw = String(resp.body)
+    # Response is JSON array: ["SYM1","SYM2",...]
+    symbols = split(raw, ',')
+    # Strip brackets and quotes
+    return [replace(s, r"[\[\]\"]" => "") for s in symbols]
+end
 
-
-
-
-# Old Function:
-# function get_symbols(search_term::String)
-
-# 	yfinance_search_link = "https://query2.finance.yahoo.com/v1/finance/search"
-
-#   # Example of full query:
-#   # https://query2.finance.yahoo.com/v1/finance/search?q=microsoft&lang=en-US&region=US&quotesCount=6&newsCount=2&listsCount=2&enableFuzzyQuery=false&quotesQueryId=tss_match_phrase_query&multiQuoteQueryId=multi_quote_single_token_query&newsQueryId=news_cie_vespa&enableCb=true&enableNavLinks=true&enableEnhancedTrivialQuery=true&enableResearchReports=true&researchReportsCount=2
-# 	query = Dict("q" => search_term)
-
-# 	response = HTTP.get(yfinance_search_link,query = query)
-
-# 	repsonse_parsed = JSON3.read(response.body)
-
-# 	quotes = repsonse_parsed.quotes
-
-# 	# Also provides news under response_parsed.news
-# 	return quotes
-# end
-
-
+# ─── Search Item Struct ───────────────────────────────────────────────────────
 
 """
-This is an `YahooSearchItem`
+    YahooSearchItem
+
+A single search result from Yahoo Finance symbol search.
 
 # Fields
-- symbol: The Symbol (Ticker)
-- shortname: The short name of the instrument/company
-- quoteType: The type of asset (e.g. EQUITY)
-- sector: The Sector (only if quotetype==EQUITY, otherwise "")
-- industry: The Industry (only if quotetype==EQUITY, otherwise "")
+- `symbol::String` — Ticker symbol
+- `shortname::String` — Short display name
+- `exchange::String` — Exchange name
+- `quoteType::String` — Asset type (EQUITY, FUTURE, ETF, etc.)
+- `sector::String` — Sector (equity only, empty otherwise)
+- `industry::String` — Industry (equity only, empty otherwise)
 """
-mutable struct YahooSearchItem
-   symbol::String
-   shortname::String
-   exchange::String
-   quoteType::String
-   sector::String
-   industry::String
-end
-
-"""
-This is an `YahooSearch <: AbstractArray{YahooSearchItem, N}`
-
-Basically a custom Array of `YahooSearchItem`s
-"""
-mutable struct YahooSearch{YahooSearchItem,N} <: AbstractArray{YahooSearchItem,N}
-   arr::Array{YahooSearchItem,N}
-end
-
-function Base.size(x::YahooSearch)
-   return size(x.arr)
-end
-function Base.getindex(x::YahooSearch,i::Int)
-   return x.arr[i]
-end
-function Base.show(io::IO,x::YahooSearchItem)
-   println(io,"")
-   println(io,"Symbol:\t $(x.symbol)")
-   println(io,"Name:\t $(x.shortname)")
-   println(io,"Type:\t $(x.quoteType)")
-   println(io,"Exch.:\t $(x.exchange)")
-   if isequal(x.sector,"").==false
-       println(io,"Sec.:\t $(x.sector)")
-       println(io,"Ind.:\t $(x.industry)")
-   end
+struct YahooSearchItem
+    symbol::String
+    shortname::String
+    exchange::String
+    quoteType::String
+    sector::String
+    industry::String
 end
 
 """
-    get_symbols(search_term::String)
+    YahooSearch <: AbstractVector{YahooSearchItem}
 
-Allows searches for specific securities.
+A collection of search results. Behaves as an `AbstractVector`.
+"""
+struct YahooSearch <: AbstractVector{YahooSearchItem}
+    items::Vector{YahooSearchItem}
+end
+
+Base.size(x::YahooSearch) = size(x.items)
+Base.getindex(x::YahooSearch, i::Int) = x.items[i]
+Base.IndexStyle(::Type{YahooSearch}) = IndexLinear()
+
+function Base.show(io::IO, item::YahooSearchItem)
+    println(io)
+    println(io, "Symbol:\t $(item.symbol)")
+    println(io, "Name:\t $(item.shortname)")
+    println(io, "Type:\t $(item.quoteType)")
+    println(io, "Exch.:\t $(item.exchange)")
+    if !isempty(item.sector)
+        println(io, "Sec.:\t $(item.sector)")
+        println(io, "Ind.:\t $(item.industry)")
+    end
+end
+
+function Base.show(io::IO, ::MIME"text/plain", x::YahooSearch)
+    print(io, "$(length(x))-element YahooSearch:")
+    for item in x.items
+        show(io, item)
+    end
+end
+
+# ─── Search Function ─────────────────────────────────────────────────────────
+
+"""
+    get_symbols(search_term::String) -> YahooSearch
+
+Search for securities by name or keyword.
 
 # Arguments
-   * `search_term::String`: Typically a company/security name (e.g. microsoft)
+- `search_term::String` — Company name, ticker, or keyword (e.g., "microsoft", "micro")
 
 # Returns
-   * A `YahooSearch <: AbstractArray` containing `YahooSearchItem`s containing the following fields: symbol`::String`, shortname`::String`, exchange`::String`, quoteType`::String`, sector`::String`, industry`::String`
+A `YahooSearch` (AbstractVector of `YahooSearchItem`).
 
 # Example
 ```julia
 julia> get_symbols("micro")
-7-element YahooSearch{YahooSearchItem, 1}:
-
-Symbol:  MGC=F
-Name:    Micro Gold Futures,Jun-2023
-Type:    FUTURE
-Exch.:   New York Commodity Exchange (CMX)
-
-
+7-element YahooSearch:
 Symbol:  MSFT
 Name:    Microsoft Corporation
 Type:    EQUITY
-Exch.:   NASDAQ (NMS)
-Sec.:    Technology
-Ind.:    Software—Infrastructure
-
-
-Symbol:  AMD
-Name:    Advanced Micro Devices, Inc.
-Type:    EQUITY
-Exch.:   NASDAQ (NMS)
-Sec.:    Technology
-Ind.:    Semiconductors
-
-
-Symbol:  MU
-Name:    Micron Technology, Inc.
-Type:    EQUITY
-Exch.:   NASDAQ (NMS)
-Sec.:    Technology
-Ind.:    Semiconductors
-
-
-Symbol:  MSTR
-Name:    MicroStrategy Incorporated
-Type:    EQUITY
-Exch.:   NASDAQ (NMS)
-Sec.:    Technology
-Ind.:    Software—Application
-
-
-Symbol:  SMCI
-Name:    Super Micro Computer, Inc.
-Type:    EQUITY
-Exch.:   NASDAQ (NMS)
-Sec.:    Technology
-Ind.:    Computer Hardware
-
-
-Symbol:  FNGU
-Name:    MicroSectors FANG  Index 3X Lev
-Type:    ETF
-Exch.:   NYSEArca (PCX)
+...
 ```
 """
-function get_symbols(search_term::String)
-  yfinance_search_link = "https://query2.finance.yahoo.com/v1/finance/search"
-  query = Dict("q" => search_term)
-  url = _build_url(yfinance_search_link, query)
-  resp = _yahoo_get(url, search_term; timeout=10, throw_error=true)
-  repsonse_parsed = JSON3.read(resp.body).quotes
-   quotes = YahooSearchItem[]
-   for i in repsonse_parsed
-       if haskey(i, :sector)
-           push!(quotes,YahooSearchItem(i.symbol,i.shortname,"$(i.exchDisp) ($(i.exchange))",i.quoteType,i.sector,i.industry))
-       else
-           push!(quotes,YahooSearchItem(i.symbol,i.shortname,"$(i.exchDisp) ($(i.exchange))",i.quoteType,"",""))
-       end
-   end
-  return YahooSearch(quotes)
+function get_symbols(search_term::String)::YahooSearch
+    url = _build_url("https://query2.finance.yahoo.com/v1/finance/search", Dict("q" => search_term))
+    resp = _yahoo_get(url, search_term; timeout=10, throw_error=true)
+    parsed = JSON3.read(resp.body)
+    quotes = get(parsed, :quotes, [])
+
+    items = YahooSearchItem[]
+    sizehint!(items, length(quotes))
+    for q in quotes
+        symbol = string(get(q, :symbol, ""))
+        shortname = string(get(q, :shortname, ""))
+        exchange = "$(get(q, :exchDisp, "")) ($(get(q, :exchange, "")))"
+        quoteType = string(get(q, :quoteType, ""))
+        sector = string(get(q, :sector, ""))
+        industry = string(get(q, :industry, ""))
+        push!(items, YahooSearchItem(symbol, shortname, exchange, quoteType, sector, industry))
+    end
+    return YahooSearch(items)
 end

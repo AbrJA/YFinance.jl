@@ -176,7 +176,16 @@ function get_prices(symbol::String, startdt::Int, enddt::Int;
     resp = _yahoo_get(url, symbol; timeout=timeout, throw_error=throw_error,
                       empty_result=OrderedDict{String, Union{String,Vector{DateTime},Vector{Float64}}}())
     isnothing(resp) && return OrderedDict{String, Union{String,Vector{DateTime},Vector{Float64}}}()
-    return _process_response(resp.body, symbol, interval, autoadjust, exchange_local_time, divsplits)
+    try
+        return _process_response(resp.body, symbol, interval, autoadjust, exchange_local_time, divsplits)
+    catch e
+        if throw_error
+            rethrow()
+        else
+            @warn "Failed to process response for $symbol: $(sprint(showerror, e))"
+            return OrderedDict{String, Union{String,Vector{DateTime},Vector{Float64}}}()
+        end
+    end
 end
 
 
@@ -214,7 +223,7 @@ function _process_response(response_body, symbol, interval, autoadjust, exchange
     res = JSON3.read(response_body).chart.result[1]
     time_offset = exchange_local_time ? res.meta.gmtoffset : 0
 
-    haskey(res, "timestamp") ? timestamps = res.timestamp : error("No historical data for this timeperiod of $symbo")
+    haskey(res, "timestamp") ? timestamps = res.timestamp : error("No historical data for this timeperiod of $symbol")
 
     idx = length(timestamps) - length(unique(timestamps)) == 1 ? (1:length(timestamps)-1) : eachindex(timestamps)
 

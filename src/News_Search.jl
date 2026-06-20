@@ -1,14 +1,20 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# News_Search.jl — Yahoo Finance news search
+# ─────────────────────────────────────────────────────────────────────────────
+
 """
-This is an `NewsItem`
+    NewsItem
+
+A single news article from Yahoo Finance.
 
 # Fields
-- title: Title of the news article
-- publisher: Publisher of the news
-- link: The link to the news article
-- timestamp: The timestamp of the time when the news was published (`DateTime`)
-- symbols: An array of the tickers related to the news item
+- `title::String` — Article title
+- `publisher::String` — Publisher name
+- `link::String` — URL to the article
+- `timestamp::DateTime` — Publication time
+- `symbols::Vector{String}` — Related ticker symbols
 """
-mutable struct NewsItem
+struct NewsItem
     title::String
     publisher::String
     link::String
@@ -17,234 +23,108 @@ mutable struct NewsItem
 end
 
 """
-This is an `YahooNews <: AbstractArray{NewsItem, N}`
+    YahooNews <: AbstractVector{NewsItem}
 
-Basically a custom Array of `NewsItem`s
+A collection of news articles. Behaves as an `AbstractVector`.
 """
-mutable struct YahooNews{NewsItem,N} <: AbstractArray{NewsItem,N}
-    arr::Array{NewsItem,N}
+struct YahooNews <: AbstractVector{NewsItem}
+    items::Vector{NewsItem}
 end
 
-function Base.size(x::YahooNews)
-    return size(x.arr)
-end
-function Base.getindex(x::YahooNews,i::Int)
-    return x.arr[i]
-end
+Base.size(x::YahooNews) = size(x.items)
+Base.getindex(x::YahooNews, i::Int) = x.items[i]
+Base.IndexStyle(::Type{YahooNews}) = IndexLinear()
 
 """
-    titles(x::YahooNews)
+    titles(x::YahooNews) -> Vector{String}
 
-Returns the titles of all `NewsItem`s in a `Vector`
-
-# Arugments:
-   * x`::YahooNews`
-
-# Returns:
-   * `Vector{String}`
-
-# Example:
-```julia
-julia> x = search_news("MSFT");
-
-julia> titles(x)
-8-element Vector{String}:
- "Microsoft Removes Twitter From Ad Program; Musk Threatens Suit"
- "AI ChatBots Guzzle Water. How and Why It s a Problem."
- "Best Dow Jones Stocks To Buy And Watch In April: Travelers Surges On Earnings"
- "Top Companies for Financial Strength"
- "VIDEO: Your Top Questions Answe" ⋯ 17 bytes ⋯ "eiling and Portfolio Management"
- "Microsoft agrees to buy 50m Foxconn parcel in Wisconsin"
- "LinkedIn Reveals Top Workplace:" ⋯ 19 bytes ⋯ "etflix Rank For Happy Employees"
- "Microsoft Working With Space an" ⋯ 24 bytes ⋯ "Blockchain Data for Azure Cloud"
-```
+Extract all article titles.
 """
-function titles(x::YahooNews)
-    titles = String[]
-    for i in 1:length(x)
-        push!(titles, x[i].title)
+titles(x::YahooNews)::Vector{String} = [item.title for item in x.items]
+
+"""
+    links(x::YahooNews) -> Vector{String}
+
+Extract all article links.
+"""
+links(x::YahooNews)::Vector{String} = [item.link for item in x.items]
+
+"""
+    timestamps(x::YahooNews) -> Vector{DateTime}
+
+Extract all article timestamps.
+"""
+timestamps(x::YahooNews)::Vector{DateTime} = [item.timestamp for item in x.items]
+
+function Base.show(io::IO, x::NewsItem)
+    str = join(x.symbols, ", ")
+    println(io, "Title:\t\t $(x.title)")
+    println(io, "Timestamp:\t $(Dates.format(x.timestamp, "u d HH:MM p"))")
+    println(io, "Publisher:\t $(x.publisher)")
+    println(io, "Link:\t\t $(x.link)")
+    println(io, "Symbols:\t $(str)")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", x::YahooNews)
+    print(io, "$(length(x))-element YahooNews:")
+    for item in x.items
+        println(io)
+        show(io, item)
     end
-    return titles
 end
 
+# ─── Supported Languages ─────────────────────────────────────────────────────
+
+const _NEWS_LANGUAGES = Dict{String,Tuple{String,String}}(
+    "en-us" => ("en-US", "US"),
+    "en-ca" => ("en-CA", "ca"),
+    "en-gb" => ("en-GB", "GB"),
+    "en-au" => ("en-AU", "AU"),
+    "en-nz" => ("en-NZ", "NZ"),
+    "en-SG" => ("en-SG", "SG"),
+    "en-in" => ("en-IN", "IN"),
+    "de"    => ("de-DE", "DE"),
+    "es"    => ("es-ES", "ES"),
+    "fr"    => ("fr-FR", "FR"),
+    "it"    => ("it_IT", "IT"),
+    "pt-br" => ("pt-BR", "BR"),
+    "zh"    => ("zh-Hant-HK", "HK"),
+    "zh-tw" => ("zh-TW", "TW"),
+)
 
 """
-    links(x::YahooNews)
+    search_news(query::String; lang="en-us") -> YahooNews
 
-Returns the links of all `NewsItem`s in a `Vector`
+Search for news articles related to a symbol or topic.
 
-# Arugments:
-   * x`::YahooNews`
+# Arguments
+- `query::String` — Search term (typically a ticker symbol)
+- `lang::String` — Language/region. Supported: $(join(sort(collect(keys(_NEWS_LANGUAGES))), ", "))
 
-# Returns:
-   * `Vector{String}`
-
-# Example:
-```julia
-julia> x = search_news("MSFT");
-
-julia> links(x)
-8-element Vector{String}:
- "https://finance.yahoo.com/news/" ⋯ 20 bytes ⋯ "itter-ad-program-221121298.html"
- "https://finance.yahoo.com/m/06a" ⋯ 37 bytes ⋯ "chatbots-guzzle-water.-how.html"
- "https://finance.yahoo.com/m/65b" ⋯ 36 bytes ⋯ "st-dow-jones-stocks-to-buy.html"
- "https://finance.yahoo.com/m/9c4" ⋯ 35 bytes ⋯ "op-companies-for-financial.html"
- "https://finance.yahoo.com/m/ebf" ⋯ 35 bytes ⋯ "ideo%3A-your-top-questions.html"
- "https://finance.yahoo.com/news/board-oks-microsoft-data-center-163630944.html"
- "https://finance.yahoo.com/news/" ⋯ 20 bytes ⋯ "-workplace-where-155427039.html"
- "https://finance.yahoo.com/news/microsoft-working-space-time-add-150000132.html"
-```
+# Returns
+A `YahooNews` (AbstractVector of `NewsItem`).
 """
-function links(x::YahooNews)
-    links = String[]
-    for i in 1:length(x)
-        push!(links, x[i].link)
+function search_news(query::String; lang::String="en-us")::YahooNews
+    haskey(_NEWS_LANGUAGES, lang) || throw(ArgumentError(
+        "Language '$lang' not supported. Choose from: $(join(sort(collect(keys(_NEWS_LANGUAGES))), ", "))"
+    ))
+
+    lang_code, region = _NEWS_LANGUAGES[lang]
+    params = Dict("q" => query, "lang" => lang_code, "region" => region)
+    url = _build_url("https://query2.finance.yahoo.com/v1/finance/search", params)
+    resp = _yahoo_get(url, query; timeout=10, throw_error=true)
+    parsed = JSON3.read(resp.body)
+    news_data = get(parsed, :news, [])
+
+    items = NewsItem[]
+    sizehint!(items, length(news_data))
+    for article in news_data
+        title = string(get(article, :title, ""))
+        publisher = string(get(article, :publisher, ""))
+        link = string(get(article, :link, ""))
+        ts = unix2datetime(get(article, :providerPublishTime, 0))
+        symbols = haskey(article, :relatedTickers) ? String.(article.relatedTickers) : String[]
+        push!(items, NewsItem(title, publisher, link, ts, symbols))
     end
-    return links
-end
-
-
-"""
-    timestamps(x::YahooNews)
-
-Returns the timestamp of all `NewsItem`s in a `Vector`
-
-# Arugments:
-   * x`::YahooNews`
-
-# Returns:
-   * `Vector{DateTime}`
-
-# Example:
-```julia
-julia> x = search_news("MSFT");
-
-julia> timestamps(x)
-8-element Vector{Dates.DateTime}:
- 2023-04-19T22:11:21
- 2023-04-19T20:33:00
- 2023-04-19T18:06:33
- 2023-04-19T18:03:00
- 2023-04-19T16:46:00
- 2023-04-19T16:36:30
- 2023-04-19T15:54:27
- 2023-04-19T15:00:00
-```
-"""
-function timestamps(x::YahooNews)
-    timestamps = DateTime[]
-    for i in 1:length(x)
-        push!(timestamps, x[i].timestamp)
-    end
-    return timestamps
-end
-function Base.show(io::IO,x::NewsItem)
-    str = join(x.symbols,", ")
-    println(io,"Title:\t\t $(x.title)")
-    println(io,"Timestamp:\t $(Dates.format(x.timestamp, "u d HH:MM p"))")
-    println(io,"Publisher:\t $(x.publisher)")
-    println(io,"Link:\t\t $(x.link)")
-    println(io,"Symbols:\t $(str)")
-end
-
-
-
-
-"""
-    search_news(str::String;lang="en-us")
-
-Returns news related to the seach string `str`.
-
-# Arugments:
-   * str`::String`: The search string. It is usually a symbol.
-   * lang`::String`: The search language and region. The region is automatically set according to the language. Supported languages are: "en-us", "en-ca", "en-gb", "en-au", "en-nz", "en-SG", "en-in", "de", "es", "fr", "it", "pt-br", "zh", and "zh-tw".
-
-# Returns:
-   * `YahooNews <: AbstractArray` that contains  `NewsItem`s with fields: title`::String`, publisher`::String`, link`::String`, timestamp`::DateTime`, symbols`::Array{String,1}`
-
-# Example:
-```julia
-julia> search_news("MSFT")
-8-element YahooNews{NewsItem, 1}:
- Title:          Microsoft Removes Twitter From Ad Program; Musk Threatens Suit
-Timestamp:       Apr 19 22:11 PM
-Publisher:       Bloomberg
-Link:            https://finance.yahoo.com/news/microsoft-removes-twitter-ad-program-221121298.html
-Symbols:         MSFT
-
- Title:          AI ChatBots Guzzle Water. How and Why It’s a Problem.
-Timestamp:       Apr 19 20:33 PM
-Publisher:       Barrons.com
-Link:            https://finance.yahoo.com/m/06a973de-215d-3928-9c99-00867b512966/ai-chatbots-guzzle-water.-how.html
-Symbols:         GOOGL, MSFT
-
- Title:          Best Dow Jones Stocks To Buy And Watch In April: Travelers Surges On Earnings
-Timestamp:       Apr 19 18:06 PM
-Publisher:       Investor's Business Daily
-Link:            https://finance.yahoo.com/m/65b53896-faf4-3a06-9d0d-a63cf3c83192/best-dow-jones-stocks-to-buy.html
-Symbols:         ^DJI, MSFT
-
- Title:          Top Companies for Financial Strength
-Timestamp:       Apr 19 18:03 PM
-Publisher:       The Wall Street Journal
-Link:            https://finance.yahoo.com/m/9c4f6782-7ce7-3e1e-8d0a-ff7f41bc5ef7/top-companies-for-financial.html
-Symbols:         XOM, MSFT, AAPL, NUE, MRNA
-
- Title:          VIDEO: Your Top Questions Answered on the Debt Ceiling and Portfolio Management
-Timestamp:       Apr 19 16:46 PM
-Publisher:       TheStreet.com
-Link:            https://finance.yahoo.com/m/ebf41ba6-6cbc-38ce-93c5-bcee152080e7/video%3A-your-top-questions.html
-Symbols:         CHPT, MSFT
-
- Title:          Microsoft agrees to buy 50m Foxconn parcel in Wisconsin
-Timestamp:       Apr 19 16:36 PM
-Publisher:       AP Finance
-Link:            https://finance.yahoo.com/news/board-oks-microsoft-data-center-163630944.html
-Symbols:         MSFT
-
- Title:          LinkedIn Reveals Top Workplace: Where Amazon and Netflix Rank For Happy Employees
-Timestamp:       Apr 19 15:54 PM
-Publisher:       Benzinga
-Link:            https://finance.yahoo.com/news/linkedin-reveals-top-workplace-where-155427039.html
-Symbols:         AMZN, GOOGL, MSFT, NFLX, WFC
-
- Title:          Microsoft Working With Space and Time to Add Real-Time Blockchain Data for Azure Cloud
-Timestamp:       Apr 19 15:00 PM
-Publisher:       CoinDesk
-Link:            https://finance.yahoo.com/news/microsoft-working-space-time-add-150000132.html
-Symbols:         MSFT
-```
-"""
-function search_news(str::String;lang="en-us")
-    lang_opt = Dict(
-        "en-us"=>("en-US","US"),
-        "en-ca"=>("en-CA","ca"),
-        "en-gb"=>("en-GB","GB"),
-        "en-au"=>("en-AU","AU"),
-        "en-nz"=>("en-NZ","NZ"),
-        "en-SG"=>("en-SG","SG"),
-        "en-in"=>("en-IN","IN"),
-        "de"=>("de-DE","DE"),
-        "es"=>("es-ES","ES"),
-        "fr"=>("fr-FR","FR"),
-        "it"=>("it_IT","IT"),
-        "pt-br"=>("pt-BR","BR"),
-        "zh"=>("zh-Hant-HK","HK"),
-        "zh-tw"=>("zh-TW","TW")
-    )
-    @assert in(lang, keys(lang_opt)) "Language not supported choose one from: $(join(keys(lang_opt),", "))"
-	yfinance_search_link = "https://query2.finance.yahoo.com/v1/finance/search"
-	query = Dict("q" => str, "lang"=>lang_opt[lang][1],"region"=>lang_opt[lang][2])
-	url = _build_url(yfinance_search_link, query)
-	resp = _yahoo_get(url, str; timeout=10, throw_error=true)
-	repsonse_parsed = JSON3.read(resp.body).news
-    news = NewsItem[]
-    for i in repsonse_parsed
-        if haskey(i, :relatedTickers)
-            push!(news,NewsItem(i.title,i.publisher,i.link,unix2datetime(i.providerPublishTime),i.relatedTickers))
-        else
-            push!(news,NewsItem(i.title,i.publisher,i.link,unix2datetime(i.providerPublishTime),[]))
-        end
-    end
-	return YahooNews(news)
+    return YahooNews(items)
 end

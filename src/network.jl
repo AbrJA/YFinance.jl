@@ -1,54 +1,78 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # network.jl — Core networking layer for YFinance.jl
-# Provides: YahooSession, rate-limited requests, retry logic, URL building
+# Provides: YahooSession, rate-limited requests, retry logic, URL building,
+#           connection pooling via persistent Downloader
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ─── URL Encoding ─────────────────────────────────────────────────────────────
 
 const _SAFE_URI_CHARS = Set{Char}(vcat(
-    collect('A':'Z'), collect('a':'z'), collect('0':'9'), ['-', '.', '_', '~']
+    collect('A':'Z'), collect('a':'z'), collect('0':'9'),
+    ['-', '.', '_', '~']
 ))
 
-function _uri_encode(s::AbstractString)
-    io = IOBuffer()
+"""
+    _uri_encode(s::AbstractString) -> String
+
+Percent-encode a string for use in URLs (RFC 3986).
+"""
+function _uri_encode(s::AbstractString)::String
+    io = IOBuffer(sizehint=ncodeunits(s))
     for c in s
         if c in _SAFE_URI_CHARS
             write(io, c)
         else
             for byte in codeunits(string(c))
-                write(io, '%', uppercase(string(byte, base=16, pad=2)))
+                write(io, '%', uppercase(string(byte; base=16, pad=2)))
             end
         end
     end
     return String(take!(io))
 end
 
-function _build_query_string(params::Dict)
+"""
+    _build_query_string(params) -> String
+
+Build a URL query string from key-value pairs. Skips empty string values.
+"""
+function _build_query_string(params)::String
     parts = String[]
     for (k, v) in params
-        push!(parts, "$(_uri_encode(string(k)))=$(_uri_encode(string(v)))")
+        sv = string(v)
+        isempty(sv) && continue
+        push!(parts, "$(_uri_encode(string(k)))=$(_uri_encode(sv))")
     end
-    return join(parts, "&")
+    return join(parts, '&')
 end
 
-function _build_url(base::String, params::Dict)
+"""
+    _build_url(base::AbstractString, params) -> String
+
+Append query parameters to a base URL.
+"""
+function _build_url(base::AbstractString, params)::String
     qs = _build_query_string(params)
-    return isempty(qs) ? base : "$base?$qs"
+    return isempty(qs) ? String(base) : "$base?$qs"
 end
 
 # ─── Response Error Type ──────────────────────────────────────────────────────
 
+"""
+    ResponseError <: Exception
+
+Represents an HTTP error response from the Yahoo Finance API.
+"""
 struct ResponseError <: Exception
     status::Int
     body::Vector{UInt8}
 end
 
 function Base.showerror(io::IO, e::ResponseError)
-    print(io, "ResponseError: HTTP $(e.status)")
+    print(io, "ResponseError: HTTP ", e.status)
     if !isempty(e.body)
         text = String(copy(e.body))
-        if length(text) > 100
-            text = text[1:100] * "..."
+        if length(text) > 200
+            text = text[1:200] * "…"
         end
         print(io, " — ", text)
     end
@@ -59,41 +83,72 @@ end
 """
     YahooSession
 
-Holds authentication state (cookie, crumb, header) and rate-limiting configuration.
-Thread-safe via a ReentrantLock.
+Holds authentication state (cookie, crumb), rate-limiting configuration,
+and a persistent `Downloads.Downloader` for connection reuse.
+Thread-safe via `ReentrantLock`.
 """
 mutable struct YahooSession
+    # Auth state
     cookie::Dict{String,String}
     crumb::String
     header::Dict{String,String}
+
+    # Proxy config
     proxy::Union{Nothing,String}
     proxy_auth::Dict{String,String}
+
+    # Rate limiting
     last_request_time::Float64
-    min_request_interval::Float64  # seconds between requests
-    max_retries::Int
-    retry_base_delay::Float64      # base delay for exponential backoff (seconds)
+    const min_request_interval::Float64  # seconds between requests
+    const max_retries::Int
+    const retry_base_delay::Float64      # base delay for exponential backoff
+
+    # Connection pooling
+    downloader::Union{Nothing,Downloads.Downloader}
+
+    # State
     initialized::Bool
-    lock::ReentrantLock
+    const lock::ReentrantLock
 end
 
-function YahooSession()
+function YahooSession(;
+    min_request_interval::Float64=0.3,
+    max_retries::Int=3,
+    retry_base_delay::Float64=1.5
+)
     return YahooSession(
-        Dict{String,String}(),  # cookie
-        "",                      # crumb
-        Dict{String,String}(),  # header
-        nothing,                 # proxy
-        Dict{String,String}(),  # proxy_auth
-        0.0,                     # last_request_time
-        0.3,                     # min_request_interval (300ms)
-        3,                       # max_retries
-        1.5,                     # retry_base_delay
-        false,                   # initialized
-        ReentrantLock()          # lock
+        Dict{String,String}(),   # cookie
+        "",                       # crumb
+        Dict{String,String}(),   # header
+        nothing,                  # proxy
+        Dict{String,String}(),   # proxy_auth
+        0.0,                      # last_request_time
+        min_request_interval,
+        max_retries,
+        retry_base_delay,
+        nothing,                  # downloader (lazy init)
+        false,                    # initialized
+        ReentrantLock()
     )
 end
 
-# Global singleton session
+"""Global singleton session — all requests go through this."""
 const _SESSION = YahooSession()
+
+# ─── Connection Pooling ───────────────────────────────────────────────────────
+
+"""
+    _get_downloader() -> Downloads.Downloader
+
+Returns the persistent Downloader instance (connection pool).
+Creates one on first use.
+"""
+function _get_downloader()::Downloads.Downloader
+    if isnothing(_SESSION.downloader)
+        _SESSION.downloader = Downloads.Downloader()
+    end
+    return _SESSION.downloader
+end
 
 # ─── Session Management ───────────────────────────────────────────────────────
 
@@ -119,6 +174,7 @@ end
     _renew_session!()
 
 Forces a fresh cookie+crumb fetch regardless of current state.
+Call when receiving 401/403 responses.
 """
 function _renew_session!()
     lock(_SESSION.lock) do
@@ -147,24 +203,25 @@ end
 
 # ─── Header Building ─────────────────────────────────────────────────────────
 
-function _build_headers(cookies::Dict{String,String})
+function _build_headers(cookies::Dict{String,String})::Vector{Pair{String,String}}
     headers = Pair{String,String}[]
+    sizehint!(headers, 12)
 
-    # Browser headers (skip accept-encoding — Downloads.jl doesn't auto-decompress)
+    # Browser headers (override accept-encoding to avoid gzip issues)
     for (k, v) in _SESSION.header
         lowercase(k) == "accept-encoding" && continue
         push!(headers, k => v)
     end
     push!(headers, "Accept-Encoding" => "identity")
 
-    # Proxy auth
+    # Proxy auth headers
     for (k, v) in _SESSION.proxy_auth
         push!(headers, k => v)
     end
 
     # Cookies
     if !isempty(cookies)
-        cookie_str = join(["$k=$v" for (k, v) in cookies], "; ")
+        cookie_str = join(("$k=$v" for (k, v) in cookies), "; ")
         push!(headers, "Cookie" => cookie_str)
     end
 
@@ -173,11 +230,11 @@ end
 
 # ─── Cookie Parsing ───────────────────────────────────────────────────────────
 
-function _parse_set_cookie(headers::Vector)
+function _parse_set_cookie(headers::Vector)::Dict{String,String}
     cookies = Dict{String,String}()
     for (name, value) in headers
         if lowercase(name) == "set-cookie"
-            cookie_part = split(value, ";")[1]
+            cookie_part = first(split(value, ';'))
             eq_pos = findfirst('=', cookie_part)
             if !isnothing(eq_pos)
                 cname = strip(String(cookie_part[1:eq_pos-1]))
@@ -191,10 +248,15 @@ end
 
 # ─── Rate Limiting ────────────────────────────────────────────────────────────
 
+"""
+    _throttle!()
+
+Enforces minimum interval between requests.
+"""
 function _throttle!()
     elapsed = time() - _SESSION.last_request_time
     remaining = _SESSION.min_request_interval - elapsed
-    if remaining > 0
+    if remaining > 0.0
         sleep(remaining)
     end
     _SESSION.last_request_time = time()
@@ -203,20 +265,31 @@ end
 
 # ─── Raw Request (no retry, no rate limit) ────────────────────────────────────
 
-function _raw_request(url::String; headers::Vector{Pair{String,String}}=Pair{String,String}[], timeout::Real=10, throw_on_error::Bool=true)
+"""
+    _raw_request(url; headers, timeout, throw_on_error) -> NamedTuple
+
+Low-level GET request using the persistent Downloader. No retry or rate limiting.
+"""
+function _raw_request(url::AbstractString;
+    headers::Vector{Pair{String,String}}=Pair{String,String}[],
+    timeout::Real=10,
+    throw_on_error::Bool=true
+)
     output = IOBuffer()
+    downloader = _get_downloader()
 
     resp = Downloads.request(url;
         method="GET",
         headers=headers,
         output=output,
         timeout=Float64(timeout),
+        downloader=downloader,
         throw=false
     )
 
     body = take!(output)
     resp_status = resp.status
-    resp_headers = resp.headers
+    resp_headers = Pair{String,String}[String(k) => String(v) for (k, v) in resp.headers]
 
     if throw_on_error && resp_status >= 400
         throw(ResponseError(resp_status, body))
@@ -228,13 +301,15 @@ end
 # ─── Main Request Function (rate-limited + retry) ─────────────────────────────
 
 """
-    _request(url; timeout=10, throw_on_error=true)
+    _request(url; timeout=10, throw_on_error=true) -> NamedTuple
 
 Makes a rate-limited, retrying GET request using the current session.
-Handles 429 (Too Many Requests) with exponential backoff.
-On 401/403, renews the session and retries.
+- Throttles to respect `min_request_interval`
+- Retries on 429 with exponential backoff
+- Renews session on 401/403 before retrying
+- Retries on transient network errors
 """
-function _request(url::String; timeout::Real=10, throw_on_error::Bool=true)
+function _request(url::AbstractString; timeout::Real=10, throw_on_error::Bool=true)
     _ensure_session!()
     headers = _build_headers(_SESSION.cookie)
 
@@ -244,22 +319,23 @@ function _request(url::String; timeout::Real=10, throw_on_error::Bool=true)
         try
             return _raw_request(url; headers=headers, timeout=timeout, throw_on_error=throw_on_error)
         catch e
+            is_last = attempt == _SESSION.max_retries
+
             if !(e isa ResponseError)
-                # Network error — retry if attempts remain
-                attempt == _SESSION.max_retries && rethrow()
+                # Network/timeout error — retry with backoff
+                is_last && rethrow()
                 sleep(_SESSION.retry_base_delay * 2^(attempt - 1))
                 continue
             end
 
             if e.status == 429
-                # Rate limited — wait with exponential backoff
-                attempt == _SESSION.max_retries && rethrow()
-                delay = _SESSION.retry_base_delay * 2^(attempt - 1)
-                sleep(delay)
+                # Rate limited — exponential backoff
+                is_last && rethrow()
+                sleep(_SESSION.retry_base_delay * 2^(attempt - 1))
                 continue
             elseif e.status in (401, 403)
-                # Auth expired — renew session and retry
-                attempt == _SESSION.max_retries && rethrow()
+                # Auth expired — renew and retry
+                is_last && rethrow()
                 _renew_session!()
                 headers = _build_headers(_SESSION.cookie)
                 continue
@@ -270,18 +346,18 @@ function _request(url::String; timeout::Real=10, throw_on_error::Bool=true)
         end
     end
 
-    # Should not reach here, but just in case:
+    # Unreachable, but satisfies the compiler
     error("Request failed after $(_SESSION.max_retries) attempts: $url")
 end
 
 # ─── Yahoo Error Parsing ──────────────────────────────────────────────────────
 
 """
-    _parse_yahoo_error(body, status, symbol)
+    _parse_yahoo_error(body, status, symbol) -> String
 
-Parses Yahoo Finance error response bodies. Handles both JSON and plain-text errors.
+Parses Yahoo Finance error response bodies. Handles both JSON and plain-text.
 """
-function _parse_yahoo_error(body::Vector{UInt8}, status::Int, symbol::String="")
+function _parse_yahoo_error(body::Vector{UInt8}, status::Int, symbol::String="")::String
     try
         yahoo_error = JSON3.read(body)
         if haskey(yahoo_error, :finance)
@@ -305,31 +381,28 @@ end
 
 # ─── Backward-compatible API ──────────────────────────────────────────────────
 
-# These maintain the old interface for Proxy_Auth.jl and exported functions
-
 function _make_headers(; extra_headers::Dict=Dict{String,String}(), cookies::Dict=Dict{String,String}(), use_random_header::Bool=true)
     _ensure_session!()
     return _build_headers(cookies)
 end
 
-# ─── High-level Yahoo Request (standardized error handling) ───────────────────
+# ─── High-level Yahoo Request ─────────────────────────────────────────────────
 
 """
     _yahoo_get(url, symbol; timeout=10, throw_error=false, empty_result=nothing)
 
-Standard pattern for Yahoo Finance GET requests with consistent error handling.
-Returns the response NamedTuple on success, or `nothing` on failure (when throw_error=false).
-If throw_error=true, raises an error with a descriptive message on failure.
+Standard pattern for all Yahoo Finance GET requests.
+Returns the response NamedTuple on success, or `nothing` on failure (when `throw_error=false`).
 """
-function _yahoo_get(url::String, symbol::String=""; timeout::Real=10, throw_error::Bool=false, empty_result=nothing)
+function _yahoo_get(url::AbstractString, symbol::String=""; timeout::Real=10, throw_error::Bool=false, empty_result=nothing)
     try
         return _request(url; timeout=timeout)
     catch e
         msg = if e isa ResponseError
             if e.status == 404
-                "$symbol is not a valid Symbol."
+                "$symbol is not a valid symbol."
             elseif e.status == 429
-                "Too many requests for $symbol. Rate limit exceeded after retries."
+                "Rate limit exceeded for $symbol after $(_SESSION.max_retries) retries."
             else
                 _parse_yahoo_error(e.body, e.status, symbol)
             end
@@ -345,4 +418,3 @@ function _yahoo_get(url::String, symbol::String=""; timeout::Real=10, throw_erro
         end
     end
 end
-

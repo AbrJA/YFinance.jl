@@ -1,26 +1,38 @@
 module YFinance
-    
-    using Base64 # Required for Authentication
-    using OrderedCollections # Required for ordered Dictionary Output. No reordering needed if converting to Tables
+
+    using Base64
+    using OrderedCollections
     using Dates
     using Downloads
     using JSON3
-    using Random
     using PrecompileTools: @setup_workload, @compile_workload
 
-    export _PROXY_SETTINGS, create_proxy_settings,clear_proxy_settings, _set_cookies_and_crumb
-    export validate_symbol,get_valid_symbols,get_prices, get_dividends, get_splits
-    export _QuoteSummary_Items,get_quoteSummary
-    export _Fundamental_Types, _Fundamental_Intervals,get_Fundamental,get_Options#,get_ESG - ESG endpoint was removed by yahoo
-    export get_calendar_events,get_earnings_estimates,get_eps,get_insider_holders,get_insider_transactions
-    export get_institutional_ownership,get_major_holders_breakdown,get_recommendation_trend
-    export get_summary_detail,get_sector_industry,get_upgrade_downgrade_history
-    export get_all_symbols, get_symbols, YahooSearch, YahooSearchItem
-    export NewsItem, YahooNews, titles, links, timestamps, search_news
+    # Public API — Data retrieval
+    export get_prices, get_dividends, get_splits
+    export get_Fundamental, get_Options
+    export get_quoteSummary
+    export get_all_symbols, get_symbols, search_news
+    export validate_symbol, get_valid_symbols
+
+    # Public API — Types
+    export YahooSearch, YahooSearchItem
+    export YahooNews, NewsItem
+    export titles, links, timestamps
     export sink_prices_to
 
-    #Re Exports from Base:
-    export size, getindex, show
+    # Public API — Configuration
+    export create_proxy_settings, clear_proxy_settings
+
+    # Public API — QuoteSummary convenience accessors
+    export get_calendar_events, get_earnings_estimates, get_eps
+    export get_insider_holders, get_insider_transactions
+    export get_institutional_ownership, get_major_holders_breakdown
+    export get_recommendation_trend, get_summary_detail
+    export get_sector_industry, get_upgrade_downgrade_history
+
+    # Public API — Constants (for discoverability)
+    export _QuoteSummary_Items, _Fundamental_Types, _Fundamental_Intervals
+    export _PROXY_SETTINGS
 
     # Load Order
     include("headers.jl");

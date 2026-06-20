@@ -1,148 +1,124 @@
-# YFinance.jl — Improvements & Recommendations
+# YFinance.jl — Architecture & Improvements
+
+## Design Decisions
+
+### Why NOT Multithreading/Async
+
+This library intentionally uses **sequential, rate-limited requests**:
+
+1. **Bottleneck is I/O + rate limits, not CPU** — Yahoo Finance aggressively rate-limits (429). Parallel requests would trigger limits faster.
+2. **Shared session state** — Cookie/crumb auth requires serialized access. Adding concurrent request queues adds complexity without benefit.
+3. **Users control parallelism** — Julia's broadcasting (`get_prices.(symbols)`) + `@threads`/`asyncmap` give users control when they need it.
+4. **Reliability over speed** — For a data retrieval library, one reliable request is better than 10 racy ones.
+
+### Why Downloads.jl (not HTTP.jl)
+
+| Factor | HTTP.jl | Downloads.jl |
+|--------|---------|--------------|
+| Availability | External package | Julia stdlib (always present) |
+| Dependencies | ~15+ transitive | Zero |
+| Breaking changes | Frequent | Tied to Julia version |
+| TLS/Proxy | Own implementation | Battle-tested libcurl |
+
+### Dependency Audit
+
+| Package | Purpose | Required? |
+|---------|---------|-----------|
+| `Base64` | Proxy auth encoding | Yes (stdlib, zero cost) |
+| `Dates` | Timestamp handling | Yes (stdlib, essential) |
+| `Downloads` | HTTP requests | Yes (stdlib, core networking) |
+| `JSON3` | JSON parsing | Yes (fast, StructTypes-based) |
+| `OrderedCollections` | Stable column order for DataFrame compat | Yes (design choice) |
+| `PrecompileTools` | TTFX reduction | Yes (precompile workloads) |
+| ~~`Random`~~ | Was used only for `rand(HEADERS)` | **Removed** — `rand` is in Base |
+
+---
 
 ## Completed Improvements
 
 ### 1. HTTP.jl → Downloads.jl Migration ✅
+Replaced all HTTP.jl calls with Downloads.jl (stdlib). Eliminates dependency resolution failures.
 
-| Factor | HTTP.jl | Downloads.jl |
-|--------|---------|--------------|
-| Availability | External package (can fail to resolve) | Julia stdlib since v1.6 — always present |
-| Dependency weight | ~15+ transitive dependencies | Zero extra dependencies |
-| Compat issues | Frequent breaking changes between major versions | Tied to Julia version, stable API |
-| Maintenance | Must track upstream breaking changes | Maintained by Julia core team |
-| TLS/Proxy | Own implementation | Uses battle-tested libcurl |
+### 2. YahooSession Singleton Architecture ✅
+Thread-safe mutable struct with `ReentrantLock`, `const` fields for configuration, lazy initialization.
 
-The root cause of the package being broken was HTTP.jl failing to resolve in the Manifest (incompatible compat bound `HTTP = "1.2"` with Julia 1.12). Switching to Downloads.jl eliminates this class of problems entirely.
+### 3. Rate Limiting (300ms throttle) ✅
+Minimum interval between requests prevents 429 errors. Configurable via `min_request_interval`.
 
-### 2. Centralized Network Layer with YahooSession ✅
+### 4. Retry with Exponential Backoff ✅
+3 attempts, 1.5s base delay. Handles 429, 401/403 (with session renewal), and network errors.
 
-Implemented a `YahooSession` mutable singleton struct in `src/network.jl` that manages:
-- Cookie and crumb storage
-- Request headers
-- Proxy settings
-- Thread-safe access via `ReentrantLock`
-- Lazy initialization (session created on first request)
-- Automatic session renewal on 401/403 errors
+### 5. Connection Pooling ✅
+Persistent `Downloads.Downloader` instance reuses TCP connections across requests. Reduces latency.
 
-```julia
-mutable struct YahooSession
-    cookie::String
-    crumb::String
-    header::Vector{Pair{String,String}}
-    proxy::String
-    proxy_auth::String
-    last_request_time::Float64
-    min_request_interval::Float64  # 0.3s default
-    max_retries::Int               # 3 default
-    retry_base_delay::Float64      # 1.5s default
-    initialized::Bool
-    lock::ReentrantLock
-end
-```
+### 6. Standardized Error Handling (`_yahoo_get`) ✅
+Single entry point for all Yahoo requests. Consistent error messages, warn-or-throw pattern.
 
-### 3. Rate Limiting / Request Throttling ✅
+### 7. Immutable Data Structs ✅
+`YahooSearchItem`, `NewsItem`, `YahooSearch`, `YahooNews` are now `struct` (not `mutable struct`).
+Proper `AbstractVector` interface with `IndexStyle`, `size`, `getindex`.
 
-Built-in throttling with a configurable minimum interval (300ms default) between requests. Prevents Yahoo Finance 429 rate-limit errors automatically.
+### 8. Dependency Cleanup ✅
+Removed `Random` (unused — `rand` is in Base). Reduced external deps to 3 (JSON3, OrderedCollections, PrecompileTools).
 
-### 4. Retry Logic with Exponential Backoff ✅
+### 9. Clean Module Exports ✅
+Organized exports by category. Removed re-exports of Base functions (`size`, `getindex`, `show`).
+Removed dead code (unused macros, legacy globals that served no purpose).
 
-All requests automatically retry up to 3 times with exponential backoff (1.5s base delay). Handles:
-- HTTP 429 (Too Many Requests)
-- HTTP 401/403 (triggers session renewal before retry)
-- Network errors (transient connectivity issues)
-
-### 5. Standardized Error Handling via `_yahoo_get()` ✅
-
-All endpoint modules now use a single `_yahoo_get(url)` function that:
-- Ensures the session is initialized
-- Makes the rate-limited, retried request
-- Parses the JSON response
-- Returns a standardized `(success::Bool, data)` tuple
-- Handles both JSON and plain-text error bodies gracefully
-
-This eliminated duplicated try/catch blocks across all endpoint files.
-
-### 6. Backward-Compatible API ✅
-
-All public-facing functions maintain their original signatures. Internal refactoring is transparent to users. Legacy globals (`_PROXY_SETTINGS`, `_COOKIE`, `_CRUMB`) are maintained as thin wrappers.
+### 10. Enhanced Test Suite ✅
+- Unit tests for internal utilities (URL encoding, date conversion, response processing)
+- Input validation tests (invalid intervals, markets, languages, items)
+- Proxy configuration tests
+- Integration tests with edge cases (invalid symbols, old dates, non-US markets)
+- Proper `sleep()` intervals for rate limiting
 
 ---
 
-## Remaining Improvements
+## Architecture
 
-### 1. Test Suite Hardening (Medium Priority)
-
-The test suite (59 tests, all passing) relies entirely on live API calls. Improvements:
-
-- **Mock responses for unit tests**: Test data processing logic separately from network calls
-- **Retry-aware test helpers**: Wrap API calls in test utilities that tolerate transient failures
-- **CI-friendly configuration**: Add environment variable to increase sleep intervals in CI
-- **Separate integration vs unit tests**: Unit tests should be fast and network-independent
-
-### 2. Connection Pooling / Downloader Reuse (Low Priority)
-
-Currently each request creates a new connection. Using a persistent `Downloads.Downloader` instance could improve latency for bulk operations:
-
-```julia
-const _DOWNLOADER = Ref{Union{Nothing,Downloads.Downloader}}(nothing)
-
-function _get_downloader()
-    if isnothing(_DOWNLOADER[])
-        _DOWNLOADER[] = Downloads.Downloader()
-    end
-    return _DOWNLOADER[]
-end
 ```
-
-### 3. Proxy Support via Environment Variables (Low Priority)
-
-Downloads.jl (libcurl) natively supports `HTTP_PROXY`/`HTTPS_PROXY` environment variables. Consider falling back to these when no explicit proxy is configured:
-
-```julia
-function _get_effective_proxy()
-    if !isempty(_SESSION.proxy)
-        return _SESSION.proxy
-    end
-    return get(ENV, "HTTPS_PROXY", get(ENV, "HTTP_PROXY", ""))
-end
+┌─────────────────────────────────────────────────────────┐
+│  Public API                                             │
+│  get_prices, get_Options, get_Fundamental, etc.         │
+├─────────────────────────────────────────────────────────┤
+│  _yahoo_get(url, symbol)                                │
+│  Standardized request + JSON parse + error handling     │
+├─────────────────────────────────────────────────────────┤
+│  _request(url)                                          │
+│  Rate-limited + retry + session auto-renewal            │
+├─────────────────────────────────────────────────────────┤
+│  _raw_request(url)                                      │
+│  Downloads.request with persistent Downloader           │
+├─────────────────────────────────────────────────────────┤
+│  YahooSession (const _SESSION)                          │
+│  Cookie, crumb, headers, proxy, rate limit config       │
+│  Thread-safe via ReentrantLock                          │
+└─────────────────────────────────────────────────────────┘
 ```
-
-### 4. Type Stability Improvements (Low Priority)
-
-Several functions return `OrderedDict{String, Any}` which is type-unstable. Consider:
-- Defining result structs for common return types (e.g., `PriceData`, `OptionChain`)
-- Using parametric types where possible
-- Documenting return structures for downstream type inference
-
-### 5. Documentation Updates (Low Priority)
-
-- Update docs to reflect the removal of the HTTP.jl dependency
-- Document the cookie/crumb authentication flow
-- Add troubleshooting section for rate limiting issues
-- Update `VersionChanges.md` with the architectural changes
-- Document thread-safety guarantees
-
-### 6. Julia Version Compat (Low Priority)
-
-The `[compat]` section sets `julia = "1.6"`. Consider bumping to `julia = "1.9"` or later since Downloads.jl has improved significantly in newer versions and the user base has largely migrated.
 
 ---
 
-## Architecture Summary
+## Remaining / Future Improvements
 
-```
-┌─────────────────────────────────────────────────┐
-│  Public API (get_prices, get_Options, etc.)      │
-├─────────────────────────────────────────────────┤
-│  _yahoo_get(url) — standardized request+parse   │
-├─────────────────────────────────────────────────┤
-│  _request(url) — rate-limited + retry + renew   │
-├─────────────────────────────────────────────────┤
-│  _raw_request(url) — Downloads.request wrapper  │
-├─────────────────────────────────────────────────┤
-│  YahooSession singleton — state + config        │
-└─────────────────────────────────────────────────┘
+### 1. Response Type System (Medium)
+Define typed result structs (`PriceResult`, `OptionChain`, etc.) instead of `OrderedDict{String,Any}`.
+Would enable dispatch, better documentation, and IDE autocompletion.
+**Trade-off**: Breaks backward compat with DataFrame pipe pattern (`result |> DataFrame`).
+
+### 2. Mock-Based Unit Tests (Low)
+Separate network tests from data processing tests using recorded JSON fixtures.
+Would make CI faster and more reliable.
+
+### 3. Environment Variable Proxy Fallback (Low)
+Falls back to `HTTP_PROXY`/`HTTPS_PROXY` env vars when no explicit proxy is configured.
+Downloads.jl/libcurl already respects these, so this may already work implicitly.
+
+### 4. Configurable Session (Low)
+Allow users to override rate limit interval, retry count, etc.:
+```julia
+YFinance.configure!(min_interval=0.5, max_retries=5)
 ```
 
-All network logic is centralized in `src/network.jl`. Endpoint modules are thin layers that build URLs and process JSON responses.
-4. **Session management** — thread-safe, auto-renewing authentication
+### 5. Streaming/Pagination (Low)
+For `get_all_symbols` or bulk operations, streaming results instead of loading all into memory.
+Not critical given typical result sizes.

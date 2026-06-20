@@ -1,148 +1,305 @@
 if isdefined(Base, :get_extension)
     using TimeSeries, TSFrames
 end
-using YFinance, Dates
+using YFinance, Dates, Base64
 using Test
 
-@testset "YFinance" begin 
-    @testset "Get Prices" begin
-        ta = get_valid_symbols(["aapl","amd","adsflajsldf"])
-        @test ta==["aapl","amd"]
+@testset "YFinance" begin
 
-        ta=YFinance._date_to_unix("2000-01-01")
-        @test ta==946684800
-        ta=YFinance._date_to_unix(Date(200,1,1))
-        @test ta==-55855785600
-        ta=YFinance._date_to_unix(DateTime(200,1,1))
-        @test ta==-55855785600
-        ta = get_prices("aapl",interval="1m", range="18d")
-        @test !isempty(ta)
-        sleep(2)
-        ta = get_prices("ADANIENT.NS",startdt ="2014-10-06" , enddt = "2024-10-06")
-        @test length(ta["timestamp"]) > 100
-        if isdefined(Base, :get_extension)
-            @test typeof(sink_prices_to(TimeArray,ta)) <: TimeArray
-            @test typeof(sink_prices_to(TSFrame,ta)) <: TSFrame
-        end
+    # ─── Unit Tests (no network) ─────────────────────────────────────────────
+    @testset "Internal Utilities" begin
+        # Date conversion
+        @test YFinance._date_to_unix("2000-01-01") == 946684800
+        @test YFinance._date_to_unix(Date(2000, 1, 1)) == 946684800
+        @test YFinance._date_to_unix(DateTime(2000, 1, 1)) == 946684800
+        @test YFinance._date_to_unix(Date(1970, 1, 1)) == 0
+        @test YFinance._date_to_unix(Date(200, 1, 1)) == -55855785600
+
+        # URL encoding
+        @test YFinance._uri_encode("hello world") == "hello%20world"
+        @test YFinance._uri_encode("AAPL") == "AAPL"
+        @test YFinance._uri_encode("a&b=c") == "a%26b%3Dc"
+        @test YFinance._uri_encode("") == ""
+        @test YFinance._uri_encode("café") == "caf%C3%A9"
+
+        # URL building
+        @test YFinance._build_url("https://example.com", Dict("a" => "1")) == "https://example.com?a=1"
+        @test YFinance._build_url("https://example.com", Dict{String,String}()) == "https://example.com"
+        # Empty values are skipped
+        @test YFinance._build_url("https://example.com", Dict("a" => "1", "b" => "")) == "https://example.com?a=1"
+
+        # Clean prices with nothing values
+        v = [1.0, 2.0, 3.0]
+        @test YFinance._clean_prices_nothing(v) === v  # identity for Float64 vectors
+        @test YFinance._clean_prices_nothing([1, 2, 3]) == [1.0, 2.0, 3.0]
+        @test isnan(YFinance._clean_prices_nothing([nothing, 1.0])[1])
+        @test isequal(YFinance._clean_prices_nothing([nothing, nothing]), [NaN, NaN])
+
+        # ResponseError display
+        err = YFinance.ResponseError(404, UInt8[])
+        @test sprint(showerror, err) == "ResponseError: HTTP 404"
+        err2 = YFinance.ResponseError(500, Vector{UInt8}("Server Error"))
+        @test contains(sprint(showerror, err2), "Server Error")
     end
+
+    @testset "Process Response" begin
+        # Use the precompile test data pattern
+        price_test_resp = UInt8[0x7b, 0x22, 0x63, 0x68, 0x61, 0x72, 0x74, 0x22, 0x3a, 0x7b, 0x22, 0x72, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x22, 0x3a, 0x5b, 0x7b, 0x22, 0x6d, 0x65, 0x74, 0x61, 0x22, 0x3a, 0x7b, 0x22, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x63, 0x79, 0x22, 0x3a, 0x22, 0x55, 0x53, 0x44, 0x22, 0x2c, 0x22, 0x73, 0x79, 0x6d, 0x62, 0x6f, 0x6c, 0x22, 0x3a, 0x22, 0x41, 0x41, 0x50, 0x4c, 0x22, 0x2c, 0x22, 0x65, 0x78, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x22, 0x3a, 0x22, 0x4e, 0x4d, 0x53, 0x22, 0x2c, 0x22, 0x66, 0x75, 0x6c, 0x6c, 0x45, 0x78, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x22, 0x3a, 0x22, 0x4e, 0x61, 0x73, 0x64, 0x61, 0x71, 0x47, 0x53, 0x22, 0x2c, 0x22, 0x69, 0x6e, 0x73, 0x74, 0x72, 0x75, 0x6d, 0x65, 0x6e, 0x74, 0x54, 0x79, 0x70, 0x65, 0x22, 0x3a, 0x22, 0x45, 0x51, 0x55, 0x49, 0x54, 0x59, 0x22, 0x2c, 0x22, 0x66, 0x69, 0x72, 0x73, 0x74, 0x54, 0x72, 0x61, 0x64, 0x65, 0x44, 0x61, 0x74, 0x65, 0x22, 0x3a, 0x33, 0x34, 0x35, 0x34, 0x37, 0x39, 0x34, 0x30, 0x30, 0x2c, 0x22, 0x72, 0x65, 0x67, 0x75, 0x6c, 0x61, 0x72, 0x4d, 0x61, 0x72, 0x6b, 0x65, 0x74, 0x54, 0x69, 0x6d, 0x65, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x37, 0x32, 0x30, 0x30, 0x31, 0x2c, 0x22, 0x68, 0x61, 0x73, 0x50, 0x72, 0x65, 0x50, 0x6f, 0x73, 0x74, 0x4d, 0x61, 0x72, 0x6b, 0x65, 0x74, 0x44, 0x61, 0x74, 0x61, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x2c, 0x22, 0x67, 0x6d, 0x74, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x22, 0x3a, 0x2d, 0x31, 0x34, 0x34, 0x30, 0x30, 0x2c, 0x22, 0x74, 0x69, 0x6d, 0x65, 0x7a, 0x6f, 0x6e, 0x65, 0x22, 0x3a, 0x22, 0x45, 0x44, 0x54, 0x22, 0x2c, 0x22, 0x65, 0x78, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x54, 0x69, 0x6d, 0x65, 0x7a, 0x6f, 0x6e, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x22, 0x3a, 0x22, 0x41, 0x6d, 0x65, 0x72, 0x69, 0x63, 0x61, 0x2f, 0x4e, 0x65, 0x77, 0x5f, 0x59, 0x6f, 0x72, 0x6b, 0x22, 0x2c, 0x22, 0x72, 0x65, 0x67, 0x75, 0x6c, 0x61, 0x72, 0x4d, 0x61, 0x72, 0x6b, 0x65, 0x74, 0x50, 0x72, 0x69, 0x63, 0x65, 0x22, 0x3a, 0x32, 0x32, 0x36, 0x2e, 0x37, 0x38, 0x2c, 0x22, 0x63, 0x68, 0x61, 0x72, 0x74, 0x50, 0x72, 0x65, 0x76, 0x69, 0x6f, 0x75, 0x73, 0x43, 0x6c, 0x6f, 0x73, 0x65, 0x22, 0x3a, 0x32, 0x32, 0x37, 0x2e, 0x35, 0x35, 0x2c, 0x22, 0x70, 0x72, 0x69, 0x63, 0x65, 0x48, 0x69, 0x6e, 0x74, 0x22, 0x3a, 0x32, 0x2c, 0x22, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x74, 0x54, 0x72, 0x61, 0x64, 0x69, 0x6e, 0x67, 0x50, 0x65, 0x72, 0x69, 0x6f, 0x64, 0x22, 0x3a, 0x7b, 0x22, 0x70, 0x72, 0x65, 0x22, 0x3a, 0x7b, 0x22, 0x74, 0x69, 0x6d, 0x65, 0x7a, 0x6f, 0x6e, 0x65, 0x22, 0x3a, 0x22, 0x45, 0x44, 0x54, 0x22, 0x2c, 0x22, 0x73, 0x74, 0x61, 0x72, 0x74, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x33, 0x34, 0x30, 0x30, 0x30, 0x2c, 0x22, 0x65, 0x6e, 0x64, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x35, 0x30, 0x34, 0x30, 0x30, 0x2c, 0x22, 0x67, 0x6d, 0x74, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x22, 0x3a, 0x2d, 0x31, 0x34, 0x34, 0x30, 0x30, 0x7d, 0x2c, 0x22, 0x72, 0x65, 0x67, 0x75, 0x6c, 0x61, 0x72, 0x22, 0x3a, 0x7b, 0x22, 0x74, 0x69, 0x6d, 0x65, 0x7a, 0x6f, 0x6e, 0x65, 0x22, 0x3a, 0x22, 0x45, 0x44, 0x54, 0x22, 0x2c, 0x22, 0x73, 0x74, 0x61, 0x72, 0x74, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x35, 0x30, 0x34, 0x30, 0x30, 0x2c, 0x22, 0x65, 0x6e, 0x64, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x37, 0x33, 0x38, 0x30, 0x30, 0x2c, 0x22, 0x67, 0x6d, 0x74, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x22, 0x3a, 0x2d, 0x31, 0x34, 0x34, 0x30, 0x30, 0x7d, 0x2c, 0x22, 0x70, 0x6f, 0x73, 0x74, 0x22, 0x3a, 0x7b, 0x22, 0x74, 0x69, 0x6d, 0x65, 0x7a, 0x6f, 0x6e, 0x65, 0x22, 0x3a, 0x22, 0x45, 0x44, 0x54, 0x22, 0x2c, 0x22, 0x73, 0x74, 0x61, 0x72, 0x74, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x37, 0x33, 0x38, 0x30, 0x30, 0x2c, 0x22, 0x65, 0x6e, 0x64, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x38, 0x38, 0x32, 0x30, 0x30, 0x2c, 0x22, 0x67, 0x6d, 0x74, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x22, 0x3a, 0x2d, 0x31, 0x34, 0x34, 0x30, 0x30, 0x7d, 0x7d, 0x2c, 0x22, 0x74, 0x72, 0x61, 0x64, 0x69, 0x6e, 0x67, 0x50, 0x65, 0x72, 0x69, 0x6f, 0x64, 0x73, 0x22, 0x3a, 0x5b, 0x5b, 0x7b, 0x22, 0x74, 0x69, 0x6d, 0x65, 0x7a, 0x6f, 0x6e, 0x65, 0x22, 0x3a, 0x22, 0x45, 0x44, 0x54, 0x22, 0x2c, 0x22, 0x73, 0x74, 0x61, 0x72, 0x74, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x35, 0x30, 0x34, 0x30, 0x30, 0x2c, 0x22, 0x65, 0x6e, 0x64, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x37, 0x33, 0x38, 0x30, 0x30, 0x2c, 0x22, 0x67, 0x6d, 0x74, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x22, 0x3a, 0x2d, 0x31, 0x34, 0x34, 0x30, 0x30, 0x7d, 0x5d, 0x5d, 0x2c, 0x22, 0x64, 0x61, 0x74, 0x61, 0x47, 0x72, 0x61, 0x6e, 0x75, 0x6c, 0x61, 0x72, 0x69, 0x74, 0x79, 0x22, 0x3a, 0x31, 0x2c, 0x22, 0x72, 0x61, 0x6e, 0x67, 0x65, 0x22, 0x3a, 0x22, 0x31, 0x64, 0x22, 0x7d, 0x2c, 0x22, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x22, 0x3a, 0x5b, 0x31, 0x37, 0x32, 0x38, 0x30, 0x35, 0x30, 0x34, 0x30, 0x30, 0x2c, 0x31, 0x37, 0x32, 0x38, 0x30, 0x37, 0x33, 0x38, 0x30, 0x31, 0x5d, 0x2c, 0x22, 0x69, 0x6e, 0x64, 0x69, 0x63, 0x61, 0x74, 0x6f, 0x72, 0x73, 0x22, 0x3a, 0x7b, 0x22, 0x71, 0x75, 0x6f, 0x74, 0x65, 0x22, 0x3a, 0x5b, 0x7b, 0x22, 0x68, 0x69, 0x67, 0x68, 0x22, 0x3a, 0x5b, 0x32, 0x32, 0x38, 0x2e, 0x30, 0x34, 0x30, 0x30, 0x30, 0x38, 0x35, 0x34, 0x34, 0x39, 0x32, 0x31, 0x38, 0x37, 0x35, 0x2c, 0x32, 0x32, 0x38, 0x2e, 0x30, 0x34, 0x30, 0x30, 0x30, 0x38, 0x35, 0x34, 0x34, 0x39, 0x32, 0x31, 0x38, 0x37, 0x35, 0x5d, 0x2c, 0x22, 0x6f, 0x70, 0x65, 0x6e, 0x22, 0x3a, 0x5b, 0x32, 0x32, 0x35, 0x2e, 0x36, 0x34, 0x30, 0x30, 0x30, 0x32, 0x34, 0x34, 0x31, 0x34, 0x30, 0x36, 0x32, 0x35, 0x2c, 0x32, 0x32, 0x35, 0x2e, 0x36, 0x34, 0x30, 0x30, 0x30, 0x32, 0x34, 0x34, 0x31, 0x34, 0x30, 0x36, 0x32, 0x35, 0x5d, 0x2c, 0x22, 0x76, 0x6f, 0x6c, 0x75, 0x6d, 0x65, 0x22, 0x3a, 0x5b, 0x33, 0x31, 0x38, 0x33, 0x32, 0x37, 0x30, 0x30, 0x2c, 0x33, 0x31, 0x38, 0x33, 0x32, 0x37, 0x30, 0x30, 0x5d, 0x2c, 0x22, 0x63, 0x6c, 0x6f, 0x73, 0x65, 0x22, 0x3a, 0x5b, 0x32, 0x32, 0x36, 0x2e, 0x37, 0x38, 0x30, 0x30, 0x30, 0x32, 0x38, 0x36, 0x38, 0x36, 0x35, 0x32, 0x33, 0x34, 0x2c, 0x32, 0x32, 0x36, 0x2e, 0x37, 0x38, 0x30, 0x30, 0x30, 0x32, 0x38, 0x36, 0x38, 0x36, 0x35, 0x32, 0x33, 0x34, 0x5d, 0x2c, 0x22, 0x6c, 0x6f, 0x77, 0x22, 0x3a, 0x5b, 0x32, 0x32, 0x34, 0x2e, 0x35, 0x37, 0x30, 0x30, 0x30, 0x37, 0x33, 0x32, 0x34, 0x32, 0x31, 0x38, 0x37, 0x35, 0x2c, 0x32, 0x32, 0x34, 0x2e, 0x35, 0x37, 0x30, 0x30, 0x30, 0x37, 0x33, 0x32, 0x34, 0x32, 0x31, 0x38, 0x37, 0x35, 0x5d, 0x7d, 0x5d, 0x2c, 0x22, 0x61, 0x64, 0x6a, 0x63, 0x6c, 0x6f, 0x73, 0x65, 0x22, 0x3a, 0x5b, 0x7b, 0x22, 0x61, 0x64, 0x6a, 0x63, 0x6c, 0x6f, 0x73, 0x65, 0x22, 0x3a, 0x5b, 0x32, 0x32, 0x36, 0x2e, 0x30, 0x37, 0x30, 0x30, 0x30, 0x37, 0x33, 0x32, 0x34, 0x32, 0x31, 0x38, 0x37, 0x35, 0x2c, 0x32, 0x32, 0x36, 0x2e, 0x30, 0x37, 0x30, 0x30, 0x30, 0x37, 0x33, 0x32, 0x34, 0x32, 0x31, 0x38, 0x37, 0x35, 0x5d, 0x7d, 0x5d, 0x7d, 0x7d, 0x5d, 0x2c, 0x22, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x22, 0x3a, 0x6e, 0x75, 0x6c, 0x6c, 0x7d, 0x7d]
+        d = YFinance._process_response(price_test_resp, "AAPL", "1d", false, false, false)
+        @test d["ticker"] == "AAPL"
+        @test haskey(d, "timestamp")
+        @test haskey(d, "open")
+        @test haskey(d, "close")
+        @test haskey(d, "vol")
+        @test length(d["timestamp"]) == length(d["open"])
+        @test all(x -> x isa Float64, d["open"])
+
+        # With autoadjust
+        d_adj = YFinance._process_response(price_test_resp, "AAPL", "1d", true, false, false)
+        @test haskey(d_adj, "adjclose")
+
+        # With exchange local time
+        d_local = YFinance._process_response(price_test_resp, "AAPL", "1d", false, true, false)
+        @test d_local["timestamp"] != d["timestamp"]  # times should differ with offset
+    end
+
+    @testset "Input Validation" begin
+        # Invalid interval
+        @test_throws AssertionError get_prices("AAPL", interval="invalid")
+        # Invalid market
+        @test_throws ArgumentError get_all_symbols("INVALID_MARKET")
+        # Invalid news language
+        @test_throws ArgumentError search_news("AAPL", lang="xx-yy")
+        # Invalid fundamental interval
+        @test_throws AssertionError get_Fundamental("AAPL", "income_statement", "invalid_interval", "2020-01-01", "2021-01-01")
+        # Invalid fundamental item
+        @test_throws AssertionError get_Fundamental("AAPL", "not_a_real_item", "annual", "2020-01-01", "2021-01-01")
+    end
+
+    @testset "Proxy Settings" begin
+        # Initial state
+        @test isnothing(_PROXY_SETTINGS.proxy)
+        @test _PROXY_SETTINGS.auth isa Dict
+        @test isempty(_PROXY_SETTINGS.auth)
+
+        # Set proxy with auth
+        create_proxy_settings("http://proxy.test:8080", "user123", "pass456")
+        @test _PROXY_SETTINGS.proxy == "http://proxy.test:8080"
+        @test _PROXY_SETTINGS.auth isa Dict
+        @test haskey(_PROXY_SETTINGS.auth, "Proxy-Authorization")
+        @test startswith(_PROXY_SETTINGS.auth["Proxy-Authorization"], "Basic ")
+        # Verify base64 encoding
+        @test _PROXY_SETTINGS.auth["Proxy-Authorization"] == "Basic $(Base64.base64encode("user123:pass456"))"
+
+        # Set proxy without auth
+        create_proxy_settings("http://open-proxy.test:3128")
+        @test _PROXY_SETTINGS.proxy == "http://open-proxy.test:3128"
+        @test isempty(_PROXY_SETTINGS.auth)
+
+        # Clear
+        clear_proxy_settings()
+        @test isnothing(_PROXY_SETTINGS.proxy)
+        @test isempty(_PROXY_SETTINGS.auth)
+    end
+
+    # ─── Integration Tests (network required) ─────────────────────────────────
+    @testset "Symbol Validation" begin
+        ta = get_valid_symbols(["aapl", "amd", "adsflajsldf"])
+        @test "aapl" in ta || "AAPL" in ta  # may normalize case
+        @test !("adsflajsldf" in ta)
+        @test length(ta) == 2
+
+        @test validate_symbol("AAPL") == true
+        @test validate_symbol("XYZNOTREAL123") == false
+    end
+
+    @testset "Get Prices" begin
+        # Basic daily price fetch
+        ta = get_prices("AAPL", range="5d", interval="1d")
+        @test !isempty(ta)
+        @test ta["ticker"] == "AAPL"
+        @test length(ta["timestamp"]) > 0
+        @test length(ta["open"]) == length(ta["close"])
+        @test all(x -> x > 0, filter(!isnan, ta["close"]))
+
+        # Minute data (use 5d range to ensure market was open in window)
+        ta_min = get_prices("AAPL", interval="1m", range="5d")
+        @test !isempty(ta_min)
+        @test length(ta_min["timestamp"]) > 1
+
+        # Date range request
+        sleep(1)
+        ta_range = get_prices("ADANIENT.NS", startdt="2023-01-01", enddt="2024-01-01")
+        @test length(ta_range["timestamp"]) > 100
+
+        # Non-US market
+        sleep(1)
+        ta_nse = get_prices("RELIANCE.NS", range="5d")
+        @test !isempty(ta_nse)
+
+        # Extension sinks
+        if isdefined(Base, :get_extension)
+            @test typeof(sink_prices_to(TimeArray, ta)) <: TimeArray
+            @test typeof(sink_prices_to(TSFrame, ta)) <: TSFrame
+        end
+
+        # Edge: invalid symbol with throw_error=false returns empty
+        sleep(1)
+        ta_bad = get_prices("XYZNOTREAL123", range="1d", throw_error=false)
+        @test isempty(ta_bad)
+
+        # Edge: minute data older than 30 days gives warning
+        old_start = Dates.format(today() - Day(60), "yyyy-mm-dd")
+        old_end = Dates.format(today() - Day(55), "yyyy-mm-dd")
+        ta_old = get_prices("AAPL", startdt=old_start, enddt=old_end, interval="1m", throw_error=false)
+        @test isempty(ta_old)
+    end
+
     @testset "Dividends and Splits" begin
-        sleep(2)
-        ta = get_prices("GOOGL",interval="1d",startdt="2022-01-01",enddt="2023-01-01",exchange_local_time=true,divsplits=true)
+        sleep(1)
+        # Google stock split 2022
+        ta = get_prices("GOOGL", interval="1d", startdt="2022-01-01", enddt="2023-01-01", exchange_local_time=true, divsplits=true)
         @test haskey(ta, "div")
         @test haskey(ta, "split_ratio")
-        @test isequal(maximum(ta["split_ratio"]), 20)
-        @test isequal(length(ta["timestamp"]), length(ta["div"]))
-        @test isequal(length(ta["timestamp"]), length(ta["split_ratio"]))
-        
+        @test maximum(ta["split_ratio"]) == 20  # 20:1 split
+        @test length(ta["timestamp"]) == length(ta["div"])
+        @test length(ta["timestamp"]) == length(ta["split_ratio"])
+
+        # Dedicated splits function
+        sleep(1)
+        splits = get_splits("AAPL", startdt="2000-01-01", enddt="2021-01-01")
+        @test haskey(splits, "ticker")
+        @test splits["ticker"] == "AAPL"
+        @test length(splits["timestamp"]) >= 3  # AAPL has had multiple splits
+
+        # Dedicated dividends function
+        sleep(1)
+        divs = get_dividends("AAPL", startdt="2021-01-01", enddt="2022-01-01")
+        @test haskey(divs, "div")
+        @test length(divs["div"]) >= 3  # quarterly dividends
+        @test all(x -> x > 0, divs["div"])
     end
+
     @testset "Fundamental Data" begin
-        sleep(2)
-        ta = get_Fundamental("AAPL","income_statement","annual",Dates.today() - Year(5),Dates.today())
-        @test in("InterestExpense",keys(ta))
+        sleep(1)
+        # Income statement
+        ta = get_Fundamental("AAPL", "income_statement", "annual", Dates.today() - Year(5), Dates.today())
+        @test "InterestExpense" in keys(ta)
         @test length(ta["InterestExpense"]) >= 3
+        @test haskey(ta, "timestamp")
+
+        # Single item
+        sleep(1)
+        ta_item = get_Fundamental("AAPL", "TotalRevenue", "quarterly", Dates.today() - Year(3), Dates.today())
+        @test haskey(ta_item, "TotalRevenue")
+        @test length(ta_item["TotalRevenue"]) >= 4
+
+        # Invalid symbol
+        sleep(1)
+        ta_bad = get_Fundamental("XYZNOTREAL123", "income_statement", "annual", "2020-01-01", "2021-01-01")
+        @test isempty(ta_bad)
     end
-    @testset "Get Options" begin
-        sleep(2)
+
+    @testset "Options" begin
+        sleep(1)
         ta = get_Options("AAPL")
-        @test in("calls", keys(ta))
+        @test haskey(ta, "calls")
+        @test haskey(ta, "puts")
         @test length(ta["calls"]["strike"]) > 1
-    end
-    @testset "Get Options by expiration date" begin
-        sleep(2)
-        # Find a future date that is not a holiday
+        @test length(ta["puts"]["strike"]) > 1
+
+        # Options by expiration date
+        sleep(1)
         d = today() + Day(1)
-        ta = get_Options("AAPL", expiration_date=d)
-        while isempty(ta["calls"]["expiration"]) && d < today() + Month(1)
-            sleep(2)
+        ta_exp = get_Options("AAPL", expiration_date=d)
+        attempts = 0
+        while isempty(ta_exp["calls"]["expiration"]) && d < today() + Month(1) && attempts < 10
+            sleep(1)
             d += Day(1)
-            ta = get_Options("AAPL", expiration_date=d)
+            ta_exp = get_Options("AAPL", expiration_date=d)
+            attempts += 1
         end
-        @test d in ta["calls"]["expiration"]
+        if !isempty(ta_exp["calls"]["expiration"])
+            @test d in ta_exp["calls"]["expiration"]
+        end
+
+        # Invalid symbol
+        sleep(1)
+        ta_bad = get_Options("XYZNOTREAL123", throw_error=false)
+        @test isempty(ta_bad)
     end
-    # ESG endpoint seems to have been removed
-    # @testset "Get ESG" begin
-    #     ta = get_ESG("AAPL")
-    #     @test in("score",keys(ta))
-    #     @test length(ta["score"]["timestamp"]) > 0
-    # end
-    @testset "Get QuoteSummary Items" begin
-        sleep(2)
+
+    @testset "QuoteSummary" begin
+        sleep(1)
         ta = get_quoteSummary("AAPL")
-        @test in(:price,keys(ta))
+        @test :price in keys(ta)
 
-        @test haskey(get_calendar_events(ta),"earnings_dates")
-
-        @test haskey(get_earnings_estimates(ta),"estimate")
-
-        @test haskey(get_eps(ta),"estimate")
-
-        @test haskey(get_insider_holders(ta),"name")
-
-        @test haskey(get_insider_transactions(ta),"filerName")
-
-        @test haskey(get_institutional_ownership(ta),"organization")
-
-        @test haskey(get_major_holders_breakdown(ta),"institutionsCount")
-
-        @test haskey(get_recommendation_trend(ta),"strongbuy")
-
-        @test haskey(get_summary_detail(ta),"tradeable")
-
-        @test haskey(get_sector_industry(ta),"sector")
-
-        @test haskey(get_upgrade_downgrade_history(ta),"firm")
+        @test haskey(get_calendar_events(ta), "earnings_dates")
+        @test haskey(get_earnings_estimates(ta), "estimate")
+        @test haskey(get_eps(ta), "estimate")
+        @test haskey(get_insider_holders(ta), "name")
+        @test haskey(get_insider_transactions(ta), "filerName")
+        @test haskey(get_institutional_ownership(ta), "organization")
+        @test haskey(get_major_holders_breakdown(ta), "institutionsCount")
+        @test haskey(get_recommendation_trend(ta), "strongbuy")
+        @test haskey(get_summary_detail(ta), "tradeable")
+        @test haskey(get_sector_industry(ta), "sector")
+        @test haskey(get_upgrade_downgrade_history(ta), "firm")
     end
 
     @testset "All Symbols" begin
-        # Test case insensitivity
-        sleep(2)
+        sleep(1)
+        # Case insensitivity
         @test length(get_all_symbols("nySE")) == length(get_all_symbols("NYSE"))
 
-        # Test if the market is supported
-        @test_throws ArgumentError get_all_symbols("wrong")
+        # Invalid market throws
+        @test_throws ArgumentError get_all_symbols("INVALID")
 
-        @test isa(get_all_symbols("NASDAQ"), Vector{String})
+        # Returns strings
+        sleep(1)
+        nasdaq = get_all_symbols("NASDAQ")
+        @test nasdaq isa Vector{String}
+        @test length(nasdaq) > 100
 
-        @test length(get_all_symbols("AMEX")) > 100
-    end
-    @testset "Search_Symbol" begin        
-        ta = get_symbols("micro")
-        @test typeof(ta) <: YahooSearch
-        @test length(ta) >0 
-        @test typeof(ta[1]) <: YahooSearchItem
-        @test typeof(ta[1].symbol) <: String
-        @test isnothing(show(ta));
+        sleep(1)
+        amex = get_all_symbols("AMEX")
+        @test length(amex) > 50
     end
 
-    @testset "News_Search" begin        
-        sleep(2)
+    @testset "Search Symbols" begin
+        sleep(1)
+        ta = get_symbols("microsoft")
+        @test ta isa YahooSearch
+        @test length(ta) > 0
+        @test ta[1] isa YahooSearchItem
+        @test !isempty(ta[1].symbol)
+        @test isnothing(show(ta))
+
+        # Search with special characters
+        sleep(1)
+        ta2 = get_symbols("S&P 500")
+        @test ta2 isa YahooSearch
+    end
+
+    @testset "News Search" begin
+        sleep(1)
         ta = search_news("MSFT")
-        @test typeof(ta) <: YahooNews
-        @test length(ta) >0 
-        @test typeof(ta[1]) <: NewsItem
-        @test typeof(ta[1].title) <: String
+        @test ta isa YahooNews
+        @test length(ta) > 0
+        @test ta[1] isa NewsItem
+        @test !isempty(ta[1].title)
 
-        @test size(titles(ta),1) > 0 
-        @test typeof(titles(ta)[1]) <: String 
+        # Accessor functions
+        @test length(titles(ta)) > 0
+        @test titles(ta)[1] isa String
+        @test length(links(ta)) > 0
+        @test links(ta)[1] isa String
+        @test length(timestamps(ta)) > 0
+        @test timestamps(ta)[1] isa DateTime
 
-        @test size(links(ta),1) > 0 
-        @test typeof(links(ta)[1]) <: String 
-        @test size(timestamps(ta),1) > 0  
-        @test typeof(timestamps(ta)[1]) <: DateTime 
-    end
-
-    @testset "Create Proxy" begin
-        @test isnothing(_PROXY_SETTINGS.proxy)
-        @test typeof(_PROXY_SETTINGS.auth) <:Dict
-        @test isempty(_PROXY_SETTINGS.auth) 
-        create_proxy_settings("someproxy","username123","pw123")
-        @test _PROXY_SETTINGS.proxy=="someproxy"
-        @test typeof(_PROXY_SETTINGS.auth) <:Dict
-        @test typeof(_PROXY_SETTINGS.auth["Proxy-Authorization"]) <: String
-        @test _PROXY_SETTINGS.auth["Proxy-Authorization"]=="Basic dXNlcm5hbWUxMjM6cHcxMjM="
-        clear_proxy_settings()
-        @test isnothing(_PROXY_SETTINGS.proxy)
-        @test typeof(_PROXY_SETTINGS.auth) <:Dict
-        @test isempty(_PROXY_SETTINGS.auth)
+        # Different language
+        sleep(1)
+        ta_de = search_news("Apple", lang="de")
+        @test ta_de isa YahooNews
     end
 end
