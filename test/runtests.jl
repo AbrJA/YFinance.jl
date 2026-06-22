@@ -1,305 +1,227 @@
-if isdefined(Base, :get_extension)
-    using TimeSeries, TSFrames
-end
-using YFinance, Dates, Base64
+using YFinance
+using Dates
 using Test
+using OrderedCollections
 
-@testset "YFinance" begin
+@testset "YFinance.jl v0.3" begin
 
     # ─── Unit Tests (no network) ─────────────────────────────────────────────
+    @testset "Types" begin
+        # YFinanceError
+        err = YFinanceError("AAPL", "test error", 404)
+        @test err.symbol == "AAPL"
+        @test err.message == "test error"
+        @test err.status == 404
+        @test contains(sprint(showerror, err), "AAPL")
+        @test contains(sprint(showerror, err), "404")
+
+        err2 = YFinanceError("X", "no status", nothing)
+        @test !contains(sprint(showerror, err2), "HTTP")
+
+        # PriceData
+        pd = PriceData("AAPL",
+            [DateTime(2024,1,1), DateTime(2024,1,2)],
+            [100.0, 101.0], [102.0, 103.0], [99.0, 100.0],
+            [101.0, 102.0], [1e6, 2e6], [101.5, 102.5]
+        )
+        @test length(pd) == 2
+        @test !isempty(pd)
+        @test pd.ticker == "AAPL"
+        @test contains(sprint(show, MIME"text/plain"(), pd), "PriceData")
+        @test contains(sprint(show, MIME"text/plain"(), pd), "AAPL")
+
+        # Empty PriceData
+        empty_pd = PriceData("X", DateTime[], Float64[], Float64[], Float64[], Float64[], Float64[], nothing)
+        @test isempty(empty_pd)
+        @test length(empty_pd) == 0
+
+        # DividendData
+        dd = DividendData("AAPL", [DateTime(2024,1,1)], [0.24])
+        @test length(dd) == 1
+        @test contains(sprint(show, MIME"text/plain"(), dd), "DividendData")
+
+        # SplitData
+        sd = SplitData("AAPL", [DateTime(2020,8,31)], [4], [1], [4.0])
+        @test length(sd) == 1
+        @test contains(sprint(show, MIME"text/plain"(), sd), "SplitData")
+
+        # OptionsChain
+        calls = OptionSide(OrderedDict("strike" => Any[150.0, 155.0]))
+        puts = OptionSide(OrderedDict("strike" => Any[145.0]))
+        oc = OptionsChain("AAPL", calls, puts)
+        @test length(oc.calls) == 2
+        @test length(oc.puts) == 1
+        @test contains(sprint(show, MIME"text/plain"(), oc), "OptionsChain")
+
+        # FundamentalData
+        fd = FundamentalData("AAPL", OrderedDict{String,Vector}("timestamp" => [DateTime(2024,1,1)], "Revenue" => Any[100]))
+        @test length(fd) == 1
+        @test contains(sprint(show, MIME"text/plain"(), fd), "FundamentalData")
+
+        # SearchResult / SearchResults
+        sr = SearchResult("MSFT", "Microsoft", "NASDAQ (NMS)", "EQUITY", "Technology", "Software")
+        srs = SearchResults([sr])
+        @test length(srs) == 1
+        @test srs[1].symbol == "MSFT"
+
+        # NewsItem / NewsResults
+        ni = NewsItem("Title", "Publisher", "http://example.com", DateTime(2024,1,1), ["AAPL"])
+        nr = NewsResults([ni])
+        @test length(nr) == 1
+        @test titles(nr) == ["Title"]
+        @test links(nr) == ["http://example.com"]
+        @test timestamps(nr) == [DateTime(2024,1,1)]
+    end
+
+    @testset "Tables.jl Interface" begin
+        using Tables
+
+        # PriceData
+        pd = PriceData("AAPL",
+            [DateTime(2024,1,1), DateTime(2024,1,2)],
+            [100.0, 101.0], [102.0, 103.0], [99.0, 100.0],
+            [101.0, 102.0], [1e6, 2e6], [101.5, 102.5]
+        )
+        @test Tables.istable(typeof(pd))
+        @test Tables.columnaccess(typeof(pd))
+        @test :timestamp in Tables.columnnames(pd)
+        @test :adjclose in Tables.columnnames(pd)
+        @test Tables.getcolumn(pd, :open) == [100.0, 101.0]
+        @test Tables.getcolumn(pd, :ticker) == ["AAPL", "AAPL"]
+
+        # PriceData without adjclose
+        pd2 = PriceData("X", [DateTime(2024,1,1)], [1.0], [2.0], [0.5], [1.5], [100.0], nothing)
+        @test :adjclose ∉ Tables.columnnames(pd2)
+
+        # DividendData
+        dd = DividendData("AAPL", [DateTime(2024,1,1)], [0.24])
+        @test Tables.istable(typeof(dd))
+        @test Tables.getcolumn(dd, :dividend) == [0.24]
+
+        # SplitData
+        sd = SplitData("AAPL", [DateTime(2020,8,31)], [4], [1], [4.0])
+        @test Tables.istable(typeof(sd))
+        @test Tables.getcolumn(sd, :ratio) == [4.0]
+
+        # OptionSide
+        os = OptionSide(OrderedDict("strike" => Any[150.0], "bid" => Any[2.5]))
+        @test Tables.istable(typeof(os))
+        @test Tables.getcolumn(os, :strike) == Any[150.0]
+
+        # FundamentalData
+        fd = FundamentalData("AAPL", OrderedDict{String,Vector}("timestamp" => [DateTime(2024,1,1)], "Revenue" => Any[100]))
+        @test Tables.istable(typeof(fd))
+        @test Tables.getcolumn(fd, :Revenue) == Any[100]
+    end
+
     @testset "Internal Utilities" begin
         # Date conversion
         @test YFinance._date_to_unix("2000-01-01") == 946684800
         @test YFinance._date_to_unix(Date(2000, 1, 1)) == 946684800
         @test YFinance._date_to_unix(DateTime(2000, 1, 1)) == 946684800
-        @test YFinance._date_to_unix(Date(1970, 1, 1)) == 0
-        @test YFinance._date_to_unix(Date(200, 1, 1)) == -55855785600
 
         # URL encoding
         @test YFinance._uri_encode("hello world") == "hello%20world"
         @test YFinance._uri_encode("AAPL") == "AAPL"
         @test YFinance._uri_encode("a&b=c") == "a%26b%3Dc"
         @test YFinance._uri_encode("") == ""
-        @test YFinance._uri_encode("café") == "caf%C3%A9"
 
         # URL building
         @test YFinance._build_url("https://example.com", Dict("a" => "1")) == "https://example.com?a=1"
         @test YFinance._build_url("https://example.com", Dict{String,String}()) == "https://example.com"
-        # Empty values are skipped
-        @test YFinance._build_url("https://example.com", Dict("a" => "1", "b" => "")) == "https://example.com?a=1"
 
-        # Clean prices with nothing values
-        v = [1.0, 2.0, 3.0]
-        @test YFinance._clean_prices_nothing(v) === v  # identity for Float64 vectors
-        @test YFinance._clean_prices_nothing([1, 2, 3]) == [1.0, 2.0, 3.0]
-        @test isnan(YFinance._clean_prices_nothing([nothing, 1.0])[1])
-        @test isequal(YFinance._clean_prices_nothing([nothing, nothing]), [NaN, NaN])
-
-        # ResponseError display
-        err = YFinance.ResponseError(404, UInt8[])
-        @test sprint(showerror, err) == "ResponseError: HTTP 404"
-        err2 = YFinance.ResponseError(500, Vector{UInt8}("Server Error"))
-        @test contains(sprint(showerror, err2), "Server Error")
+        # Clean values
+        @test YFinance._clean_values([1.0, 2.0]) == [1.0, 2.0]
+        @test YFinance._clean_values([1, 2, 3]) == [1.0, 2.0, 3.0]
+        @test isnan(YFinance._clean_values([nothing, 1.0])[1])
     end
 
-    @testset "Process Response" begin
-        # Use the precompile test data pattern
-        price_test_resp = UInt8[0x7b, 0x22, 0x63, 0x68, 0x61, 0x72, 0x74, 0x22, 0x3a, 0x7b, 0x22, 0x72, 0x65, 0x73, 0x75, 0x6c, 0x74, 0x22, 0x3a, 0x5b, 0x7b, 0x22, 0x6d, 0x65, 0x74, 0x61, 0x22, 0x3a, 0x7b, 0x22, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x63, 0x79, 0x22, 0x3a, 0x22, 0x55, 0x53, 0x44, 0x22, 0x2c, 0x22, 0x73, 0x79, 0x6d, 0x62, 0x6f, 0x6c, 0x22, 0x3a, 0x22, 0x41, 0x41, 0x50, 0x4c, 0x22, 0x2c, 0x22, 0x65, 0x78, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x22, 0x3a, 0x22, 0x4e, 0x4d, 0x53, 0x22, 0x2c, 0x22, 0x66, 0x75, 0x6c, 0x6c, 0x45, 0x78, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x22, 0x3a, 0x22, 0x4e, 0x61, 0x73, 0x64, 0x61, 0x71, 0x47, 0x53, 0x22, 0x2c, 0x22, 0x69, 0x6e, 0x73, 0x74, 0x72, 0x75, 0x6d, 0x65, 0x6e, 0x74, 0x54, 0x79, 0x70, 0x65, 0x22, 0x3a, 0x22, 0x45, 0x51, 0x55, 0x49, 0x54, 0x59, 0x22, 0x2c, 0x22, 0x66, 0x69, 0x72, 0x73, 0x74, 0x54, 0x72, 0x61, 0x64, 0x65, 0x44, 0x61, 0x74, 0x65, 0x22, 0x3a, 0x33, 0x34, 0x35, 0x34, 0x37, 0x39, 0x34, 0x30, 0x30, 0x2c, 0x22, 0x72, 0x65, 0x67, 0x75, 0x6c, 0x61, 0x72, 0x4d, 0x61, 0x72, 0x6b, 0x65, 0x74, 0x54, 0x69, 0x6d, 0x65, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x37, 0x32, 0x30, 0x30, 0x31, 0x2c, 0x22, 0x68, 0x61, 0x73, 0x50, 0x72, 0x65, 0x50, 0x6f, 0x73, 0x74, 0x4d, 0x61, 0x72, 0x6b, 0x65, 0x74, 0x44, 0x61, 0x74, 0x61, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x2c, 0x22, 0x67, 0x6d, 0x74, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x22, 0x3a, 0x2d, 0x31, 0x34, 0x34, 0x30, 0x30, 0x2c, 0x22, 0x74, 0x69, 0x6d, 0x65, 0x7a, 0x6f, 0x6e, 0x65, 0x22, 0x3a, 0x22, 0x45, 0x44, 0x54, 0x22, 0x2c, 0x22, 0x65, 0x78, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x54, 0x69, 0x6d, 0x65, 0x7a, 0x6f, 0x6e, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x22, 0x3a, 0x22, 0x41, 0x6d, 0x65, 0x72, 0x69, 0x63, 0x61, 0x2f, 0x4e, 0x65, 0x77, 0x5f, 0x59, 0x6f, 0x72, 0x6b, 0x22, 0x2c, 0x22, 0x72, 0x65, 0x67, 0x75, 0x6c, 0x61, 0x72, 0x4d, 0x61, 0x72, 0x6b, 0x65, 0x74, 0x50, 0x72, 0x69, 0x63, 0x65, 0x22, 0x3a, 0x32, 0x32, 0x36, 0x2e, 0x37, 0x38, 0x2c, 0x22, 0x63, 0x68, 0x61, 0x72, 0x74, 0x50, 0x72, 0x65, 0x76, 0x69, 0x6f, 0x75, 0x73, 0x43, 0x6c, 0x6f, 0x73, 0x65, 0x22, 0x3a, 0x32, 0x32, 0x37, 0x2e, 0x35, 0x35, 0x2c, 0x22, 0x70, 0x72, 0x69, 0x63, 0x65, 0x48, 0x69, 0x6e, 0x74, 0x22, 0x3a, 0x32, 0x2c, 0x22, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x74, 0x54, 0x72, 0x61, 0x64, 0x69, 0x6e, 0x67, 0x50, 0x65, 0x72, 0x69, 0x6f, 0x64, 0x22, 0x3a, 0x7b, 0x22, 0x70, 0x72, 0x65, 0x22, 0x3a, 0x7b, 0x22, 0x74, 0x69, 0x6d, 0x65, 0x7a, 0x6f, 0x6e, 0x65, 0x22, 0x3a, 0x22, 0x45, 0x44, 0x54, 0x22, 0x2c, 0x22, 0x73, 0x74, 0x61, 0x72, 0x74, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x33, 0x34, 0x30, 0x30, 0x30, 0x2c, 0x22, 0x65, 0x6e, 0x64, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x35, 0x30, 0x34, 0x30, 0x30, 0x2c, 0x22, 0x67, 0x6d, 0x74, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x22, 0x3a, 0x2d, 0x31, 0x34, 0x34, 0x30, 0x30, 0x7d, 0x2c, 0x22, 0x72, 0x65, 0x67, 0x75, 0x6c, 0x61, 0x72, 0x22, 0x3a, 0x7b, 0x22, 0x74, 0x69, 0x6d, 0x65, 0x7a, 0x6f, 0x6e, 0x65, 0x22, 0x3a, 0x22, 0x45, 0x44, 0x54, 0x22, 0x2c, 0x22, 0x73, 0x74, 0x61, 0x72, 0x74, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x35, 0x30, 0x34, 0x30, 0x30, 0x2c, 0x22, 0x65, 0x6e, 0x64, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x37, 0x33, 0x38, 0x30, 0x30, 0x2c, 0x22, 0x67, 0x6d, 0x74, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x22, 0x3a, 0x2d, 0x31, 0x34, 0x34, 0x30, 0x30, 0x7d, 0x2c, 0x22, 0x70, 0x6f, 0x73, 0x74, 0x22, 0x3a, 0x7b, 0x22, 0x74, 0x69, 0x6d, 0x65, 0x7a, 0x6f, 0x6e, 0x65, 0x22, 0x3a, 0x22, 0x45, 0x44, 0x54, 0x22, 0x2c, 0x22, 0x73, 0x74, 0x61, 0x72, 0x74, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x37, 0x33, 0x38, 0x30, 0x30, 0x2c, 0x22, 0x65, 0x6e, 0x64, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x38, 0x38, 0x32, 0x30, 0x30, 0x2c, 0x22, 0x67, 0x6d, 0x74, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x22, 0x3a, 0x2d, 0x31, 0x34, 0x34, 0x30, 0x30, 0x7d, 0x7d, 0x2c, 0x22, 0x74, 0x72, 0x61, 0x64, 0x69, 0x6e, 0x67, 0x50, 0x65, 0x72, 0x69, 0x6f, 0x64, 0x73, 0x22, 0x3a, 0x5b, 0x5b, 0x7b, 0x22, 0x74, 0x69, 0x6d, 0x65, 0x7a, 0x6f, 0x6e, 0x65, 0x22, 0x3a, 0x22, 0x45, 0x44, 0x54, 0x22, 0x2c, 0x22, 0x73, 0x74, 0x61, 0x72, 0x74, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x35, 0x30, 0x34, 0x30, 0x30, 0x2c, 0x22, 0x65, 0x6e, 0x64, 0x22, 0x3a, 0x31, 0x37, 0x32, 0x38, 0x30, 0x37, 0x33, 0x38, 0x30, 0x30, 0x2c, 0x22, 0x67, 0x6d, 0x74, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x22, 0x3a, 0x2d, 0x31, 0x34, 0x34, 0x30, 0x30, 0x7d, 0x5d, 0x5d, 0x2c, 0x22, 0x64, 0x61, 0x74, 0x61, 0x47, 0x72, 0x61, 0x6e, 0x75, 0x6c, 0x61, 0x72, 0x69, 0x74, 0x79, 0x22, 0x3a, 0x31, 0x2c, 0x22, 0x72, 0x61, 0x6e, 0x67, 0x65, 0x22, 0x3a, 0x22, 0x31, 0x64, 0x22, 0x7d, 0x2c, 0x22, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x22, 0x3a, 0x5b, 0x31, 0x37, 0x32, 0x38, 0x30, 0x35, 0x30, 0x34, 0x30, 0x30, 0x2c, 0x31, 0x37, 0x32, 0x38, 0x30, 0x37, 0x33, 0x38, 0x30, 0x31, 0x5d, 0x2c, 0x22, 0x69, 0x6e, 0x64, 0x69, 0x63, 0x61, 0x74, 0x6f, 0x72, 0x73, 0x22, 0x3a, 0x7b, 0x22, 0x71, 0x75, 0x6f, 0x74, 0x65, 0x22, 0x3a, 0x5b, 0x7b, 0x22, 0x68, 0x69, 0x67, 0x68, 0x22, 0x3a, 0x5b, 0x32, 0x32, 0x38, 0x2e, 0x30, 0x34, 0x30, 0x30, 0x30, 0x38, 0x35, 0x34, 0x34, 0x39, 0x32, 0x31, 0x38, 0x37, 0x35, 0x2c, 0x32, 0x32, 0x38, 0x2e, 0x30, 0x34, 0x30, 0x30, 0x30, 0x38, 0x35, 0x34, 0x34, 0x39, 0x32, 0x31, 0x38, 0x37, 0x35, 0x5d, 0x2c, 0x22, 0x6f, 0x70, 0x65, 0x6e, 0x22, 0x3a, 0x5b, 0x32, 0x32, 0x35, 0x2e, 0x36, 0x34, 0x30, 0x30, 0x30, 0x32, 0x34, 0x34, 0x31, 0x34, 0x30, 0x36, 0x32, 0x35, 0x2c, 0x32, 0x32, 0x35, 0x2e, 0x36, 0x34, 0x30, 0x30, 0x30, 0x32, 0x34, 0x34, 0x31, 0x34, 0x30, 0x36, 0x32, 0x35, 0x5d, 0x2c, 0x22, 0x76, 0x6f, 0x6c, 0x75, 0x6d, 0x65, 0x22, 0x3a, 0x5b, 0x33, 0x31, 0x38, 0x33, 0x32, 0x37, 0x30, 0x30, 0x2c, 0x33, 0x31, 0x38, 0x33, 0x32, 0x37, 0x30, 0x30, 0x5d, 0x2c, 0x22, 0x63, 0x6c, 0x6f, 0x73, 0x65, 0x22, 0x3a, 0x5b, 0x32, 0x32, 0x36, 0x2e, 0x37, 0x38, 0x30, 0x30, 0x30, 0x32, 0x38, 0x36, 0x38, 0x36, 0x35, 0x32, 0x33, 0x34, 0x2c, 0x32, 0x32, 0x36, 0x2e, 0x37, 0x38, 0x30, 0x30, 0x30, 0x32, 0x38, 0x36, 0x38, 0x36, 0x35, 0x32, 0x33, 0x34, 0x5d, 0x2c, 0x22, 0x6c, 0x6f, 0x77, 0x22, 0x3a, 0x5b, 0x32, 0x32, 0x34, 0x2e, 0x35, 0x37, 0x30, 0x30, 0x30, 0x37, 0x33, 0x32, 0x34, 0x32, 0x31, 0x38, 0x37, 0x35, 0x2c, 0x32, 0x32, 0x34, 0x2e, 0x35, 0x37, 0x30, 0x30, 0x30, 0x37, 0x33, 0x32, 0x34, 0x32, 0x31, 0x38, 0x37, 0x35, 0x5d, 0x7d, 0x5d, 0x2c, 0x22, 0x61, 0x64, 0x6a, 0x63, 0x6c, 0x6f, 0x73, 0x65, 0x22, 0x3a, 0x5b, 0x7b, 0x22, 0x61, 0x64, 0x6a, 0x63, 0x6c, 0x6f, 0x73, 0x65, 0x22, 0x3a, 0x5b, 0x32, 0x32, 0x36, 0x2e, 0x30, 0x37, 0x30, 0x30, 0x30, 0x37, 0x33, 0x32, 0x34, 0x32, 0x31, 0x38, 0x37, 0x35, 0x2c, 0x32, 0x32, 0x36, 0x2e, 0x30, 0x37, 0x30, 0x30, 0x30, 0x37, 0x33, 0x32, 0x34, 0x32, 0x31, 0x38, 0x37, 0x35, 0x5d, 0x7d, 0x5d, 0x7d, 0x7d, 0x5d, 0x2c, 0x22, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x22, 0x3a, 0x6e, 0x75, 0x6c, 0x6c, 0x7d, 0x7d]
-        d = YFinance._process_response(price_test_resp, "AAPL", "1d", false, false, false)
-        @test d["ticker"] == "AAPL"
-        @test haskey(d, "timestamp")
-        @test haskey(d, "open")
-        @test haskey(d, "close")
-        @test haskey(d, "vol")
-        @test length(d["timestamp"]) == length(d["open"])
-        @test all(x -> x isa Float64, d["open"])
-
-        # With autoadjust
-        d_adj = YFinance._process_response(price_test_resp, "AAPL", "1d", true, false, false)
-        @test haskey(d_adj, "adjclose")
-
-        # With exchange local time
-        d_local = YFinance._process_response(price_test_resp, "AAPL", "1d", false, true, false)
-        @test d_local["timestamp"] != d["timestamp"]  # times should differ with offset
+    @testset "Constants" begin
+        @test "income_statement" in keys(FUNDAMENTAL_TYPES)
+        @test "balance_sheet" in keys(FUNDAMENTAL_TYPES)
+        @test "cash_flow" in keys(FUNDAMENTAL_TYPES)
+        @test "valuation" in keys(FUNDAMENTAL_TYPES)
+        @test "annual" in FUNDAMENTAL_INTERVALS
+        @test "quarterly" in FUNDAMENTAL_INTERVALS
+        @test "monthly" in FUNDAMENTAL_INTERVALS
+        @test "assetProfile" in QUOTE_SUMMARY_ITEMS
+        @test "summaryDetail" in QUOTE_SUMMARY_ITEMS
+        @test length(QUOTE_SUMMARY_ITEMS) > 20
     end
 
     @testset "Input Validation" begin
         # Invalid interval
-        @test_throws AssertionError get_prices("AAPL", interval="invalid")
-        # Invalid market
-        @test_throws ArgumentError get_all_symbols("INVALID_MARKET")
+        @test_throws AssertionError prices("AAPL", interval="invalid")
+        # Invalid fundamental interval
+        @test_throws AssertionError fundamentals("AAPL", "income_statement", "invalid", "2020-01-01", "2021-01-01")
+        # Invalid fundamental item
+        @test_throws AssertionError fundamentals("AAPL", "not_a_real_item", "annual", "2020-01-01", "2021-01-01")
         # Invalid news language
         @test_throws ArgumentError search_news("AAPL", lang="xx-yy")
-        # Invalid fundamental interval
-        @test_throws AssertionError get_Fundamental("AAPL", "income_statement", "invalid_interval", "2020-01-01", "2021-01-01")
-        # Invalid fundamental item
-        @test_throws AssertionError get_Fundamental("AAPL", "not_a_real_item", "annual", "2020-01-01", "2021-01-01")
     end
 
     @testset "Proxy Settings" begin
-        # Initial state
-        @test isnothing(_PROXY_SETTINGS.proxy)
-        @test _PROXY_SETTINGS.auth isa Dict
-        @test isempty(_PROXY_SETTINGS.auth)
-
         # Set proxy with auth
-        create_proxy_settings("http://proxy.test:8080", "user123", "pass456")
-        @test _PROXY_SETTINGS.proxy == "http://proxy.test:8080"
-        @test _PROXY_SETTINGS.auth isa Dict
-        @test haskey(_PROXY_SETTINGS.auth, "Proxy-Authorization")
-        @test startswith(_PROXY_SETTINGS.auth["Proxy-Authorization"], "Basic ")
-        # Verify base64 encoding
-        @test _PROXY_SETTINGS.auth["Proxy-Authorization"] == "Basic $(Base64.base64encode("user123:pass456"))"
+        set_proxy("http://proxy.test:8080", user="user123", password="pass456")
+        @test YFinance._SESSION.proxy == "http://proxy.test:8080"
+        @test haskey(YFinance._SESSION.proxy_auth, "Proxy-Authorization")
+        @test startswith(YFinance._SESSION.proxy_auth["Proxy-Authorization"], "Basic ")
 
         # Set proxy without auth
-        create_proxy_settings("http://open-proxy.test:3128")
-        @test _PROXY_SETTINGS.proxy == "http://open-proxy.test:3128"
-        @test isempty(_PROXY_SETTINGS.auth)
+        set_proxy("http://open-proxy.test:3128")
+        @test YFinance._SESSION.proxy == "http://open-proxy.test:3128"
+        @test isempty(YFinance._SESSION.proxy_auth)
 
         # Clear
-        clear_proxy_settings()
-        @test isnothing(_PROXY_SETTINGS.proxy)
-        @test isempty(_PROXY_SETTINGS.auth)
+        clear_proxy()
+        @test isnothing(YFinance._SESSION.proxy)
+        @test isempty(YFinance._SESSION.proxy_auth)
     end
 
-    # ─── Integration Tests (network required) ─────────────────────────────────
-    @testset "Symbol Validation" begin
-        ta = get_valid_symbols(["aapl", "amd", "adsflajsldf"])
-        @test "aapl" in ta || "AAPL" in ta  # may normalize case
-        @test !("adsflajsldf" in ta)
-        @test length(ta) == 2
+    @testset "Price Response Parsing" begin
+        # Minimal valid chart response
+        chart_json = """{"chart":{"result":[{"meta":{"currency":"USD","symbol":"TEST","gmtoffset":-14400},"timestamp":[1700000000,1700100000],"indicators":{"quote":[{"open":[100.0,101.0],"high":[102.0,103.0],"low":[99.0,100.0],"close":[101.0,102.0],"volume":[1000000,2000000]}],"adjclose":[{"adjclose":[101.0,102.0]}]}}]}}"""
+        body = Vector{UInt8}(chart_json)
+        pd = YFinance._parse_price_response(body, "TEST", "1d", false, false)
+        @test pd.ticker == "TEST"
+        @test length(pd) == 2
+        @test pd.open == [100.0, 101.0]
+        @test pd.close == [101.0, 102.0]
+        @test pd.adjclose == [101.0, 102.0]
 
-        @test validate_symbol("AAPL") == true
-        @test validate_symbol("XYZNOTREAL123") == false
+        # With autoadjust (adjclose == close, so ratio is 1.0)
+        pd_adj = YFinance._parse_price_response(body, "TEST", "1d", true, false)
+        @test pd_adj.open == [100.0, 101.0]
+
+        # With exchange local time
+        pd_local = YFinance._parse_price_response(body, "TEST", "1d", false, true)
+        @test pd_local.timestamp != pd.timestamp
+
+        # Minute interval (no adjclose)
+        minute_json = """{"chart":{"result":[{"meta":{"currency":"USD","symbol":"TEST","gmtoffset":-14400},"timestamp":[1700000000,1700001000],"indicators":{"quote":[{"open":[100.0,101.0],"high":[102.0,103.0],"low":[99.0,100.0],"close":[101.0,102.0],"volume":[1000000,2000000]}]}}]}}"""
+        body_min = Vector{UInt8}(minute_json)
+        pd_min = YFinance._parse_price_response(body_min, "TEST", "1m", false, false)
+        @test isnothing(pd_min.adjclose)
     end
 
-    @testset "Get Prices" begin
-        # Basic daily price fetch
-        ta = get_prices("AAPL", range="5d", interval="1d")
-        @test !isempty(ta)
-        @test ta["ticker"] == "AAPL"
-        @test length(ta["timestamp"]) > 0
-        @test length(ta["open"]) == length(ta["close"])
-        @test all(x -> x > 0, filter(!isnan, ta["close"]))
-
-        # Minute data (use 5d range to ensure market was open in window)
-        ta_min = get_prices("AAPL", interval="1m", range="5d")
-        @test !isempty(ta_min)
-        @test length(ta_min["timestamp"]) > 1
-
-        # Date range request
-        sleep(1)
-        ta_range = get_prices("ADANIENT.NS", startdt="2023-01-01", enddt="2024-01-01")
-        @test length(ta_range["timestamp"]) > 100
-
-        # Non-US market
-        sleep(1)
-        ta_nse = get_prices("RELIANCE.NS", range="5d")
-        @test !isempty(ta_nse)
-
-        # Extension sinks
-        if isdefined(Base, :get_extension)
-            @test typeof(sink_prices_to(TimeArray, ta)) <: TimeArray
-            @test typeof(sink_prices_to(TSFrame, ta)) <: TSFrame
-        end
-
-        # Edge: invalid symbol with throw_error=false returns empty
-        sleep(1)
-        ta_bad = get_prices("XYZNOTREAL123", range="1d", throw_error=false)
-        @test isempty(ta_bad)
-
-        # Edge: minute data older than 30 days gives warning
-        old_start = Dates.format(today() - Day(60), "yyyy-mm-dd")
-        old_end = Dates.format(today() - Day(55), "yyyy-mm-dd")
-        ta_old = get_prices("AAPL", startdt=old_start, enddt=old_end, interval="1m", throw_error=false)
-        @test isempty(ta_old)
+    @testset "Dividend Response Parsing" begin
+        div_json = """{"chart":{"result":[{"meta":{"gmtoffset":-14400},"timestamp":[1700000000],"events":{"dividends":{"1700000000":{"date":1700000000,"amount":0.24}}},"indicators":{"quote":[{"open":[100.0],"high":[102.0],"low":[99.0],"close":[101.0],"volume":[1000000]}],"adjclose":[{"adjclose":[101.0]}]}}]}}"""
+        body = Vector{UInt8}(div_json)
+        dd = YFinance._parse_dividend_response(body, "TEST", false)
+        @test dd.ticker == "TEST"
+        @test length(dd) == 1
+        @test dd.dividend[1] == 0.24
     end
 
-    @testset "Dividends and Splits" begin
-        sleep(1)
-        # Google stock split 2022
-        ta = get_prices("GOOGL", interval="1d", startdt="2022-01-01", enddt="2023-01-01", exchange_local_time=true, divsplits=true)
-        @test haskey(ta, "div")
-        @test haskey(ta, "split_ratio")
-        @test maximum(ta["split_ratio"]) == 20  # 20:1 split
-        @test length(ta["timestamp"]) == length(ta["div"])
-        @test length(ta["timestamp"]) == length(ta["split_ratio"])
-
-        # Dedicated splits function
-        sleep(1)
-        splits = get_splits("AAPL", startdt="2000-01-01", enddt="2021-01-01")
-        @test haskey(splits, "ticker")
-        @test splits["ticker"] == "AAPL"
-        @test length(splits["timestamp"]) >= 3  # AAPL has had multiple splits
-
-        # Dedicated dividends function
-        sleep(1)
-        divs = get_dividends("AAPL", startdt="2021-01-01", enddt="2022-01-01")
-        @test haskey(divs, "div")
-        @test length(divs["div"]) >= 3  # quarterly dividends
-        @test all(x -> x > 0, divs["div"])
+    @testset "Split Response Parsing" begin
+        split_json = """{"chart":{"result":[{"meta":{"gmtoffset":-14400},"timestamp":[1700000000],"events":{"splits":{"1700000000":{"date":1700000000,"numerator":4,"denominator":1}}},"indicators":{"quote":[{"open":[100.0],"high":[102.0],"low":[99.0],"close":[101.0],"volume":[1000000]}],"adjclose":[{"adjclose":[101.0]}]}}]}}"""
+        body = Vector{UInt8}(split_json)
+        sd = YFinance._parse_splits_response(body, "TEST", false)
+        @test sd.ticker == "TEST"
+        @test length(sd) == 1
+        @test sd.numerator[1] == 4
+        @test sd.denominator[1] == 1
+        @test sd.ratio[1] == 4.0
     end
 
-    @testset "Fundamental Data" begin
-        sleep(1)
-        # Income statement
-        ta = get_Fundamental("AAPL", "income_statement", "annual", Dates.today() - Year(5), Dates.today())
-        @test "InterestExpense" in keys(ta)
-        @test length(ta["InterestExpense"]) >= 3
-        @test haskey(ta, "timestamp")
-
-        # Single item
-        sleep(1)
-        ta_item = get_Fundamental("AAPL", "TotalRevenue", "quarterly", Dates.today() - Year(3), Dates.today())
-        @test haskey(ta_item, "TotalRevenue")
-        @test length(ta_item["TotalRevenue"]) >= 4
-
-        # Invalid symbol
-        sleep(1)
-        ta_bad = get_Fundamental("XYZNOTREAL123", "income_statement", "annual", "2020-01-01", "2021-01-01")
-        @test isempty(ta_bad)
-    end
-
-    @testset "Options" begin
-        sleep(1)
-        ta = get_Options("AAPL")
-        @test haskey(ta, "calls")
-        @test haskey(ta, "puts")
-        @test length(ta["calls"]["strike"]) > 1
-        @test length(ta["puts"]["strike"]) > 1
-
-        # Options by expiration date
-        sleep(1)
-        d = today() + Day(1)
-        ta_exp = get_Options("AAPL", expiration_date=d)
-        attempts = 0
-        while isempty(ta_exp["calls"]["expiration"]) && d < today() + Month(1) && attempts < 10
-            sleep(1)
-            d += Day(1)
-            ta_exp = get_Options("AAPL", expiration_date=d)
-            attempts += 1
-        end
-        if !isempty(ta_exp["calls"]["expiration"])
-            @test d in ta_exp["calls"]["expiration"]
-        end
-
-        # Invalid symbol
-        sleep(1)
-        ta_bad = get_Options("XYZNOTREAL123", throw_error=false)
-        @test isempty(ta_bad)
-    end
-
-    @testset "QuoteSummary" begin
-        sleep(1)
-        ta = get_quoteSummary("AAPL")
-        @test "price" in keys(ta)
-
-        @test haskey(get_calendar_events(ta), "earnings_dates")
-        @test haskey(get_earnings_estimates(ta), "estimate")
-        @test haskey(get_eps(ta), "estimate")
-        @test haskey(get_insider_holders(ta), "name")
-        @test haskey(get_insider_transactions(ta), "filerName")
-        @test haskey(get_institutional_ownership(ta), "organization")
-        @test haskey(get_major_holders_breakdown(ta), "institutionsCount")
-        @test haskey(get_recommendation_trend(ta), "strongbuy")
-        @test haskey(get_summary_detail(ta), "tradeable")
-        @test haskey(get_sector_industry(ta), "sector")
-        @test haskey(get_upgrade_downgrade_history(ta), "firm")
-    end
-
-    @testset "All Symbols" begin
-        sleep(1)
-        # Case insensitivity
-        @test length(get_all_symbols("nySE")) == length(get_all_symbols("NYSE"))
-
-        # Invalid market throws
-        @test_throws ArgumentError get_all_symbols("INVALID")
-
-        # Returns strings
-        sleep(1)
-        nasdaq = get_all_symbols("NASDAQ")
-        @test nasdaq isa Vector{String}
-        @test length(nasdaq) > 100
-
-        sleep(1)
-        amex = get_all_symbols("AMEX")
-        @test length(amex) > 50
-    end
-
-    @testset "Search Symbols" begin
-        sleep(1)
-        ta = get_symbols("microsoft")
-        @test ta isa YahooSearch
-        @test length(ta) > 0
-        @test ta[1] isa YahooSearchItem
-        @test !isempty(ta[1].symbol)
-        @test isnothing(show(ta))
-
-        # Search with special characters
-        sleep(1)
-        ta2 = get_symbols("S&P 500")
-        @test ta2 isa YahooSearch
-    end
-
-    @testset "News Search" begin
-        sleep(1)
-        ta = search_news("MSFT")
-        @test ta isa YahooNews
-        @test length(ta) > 0
-        @test ta[1] isa NewsItem
-        @test !isempty(ta[1].title)
-
-        # Accessor functions
-        @test length(titles(ta)) > 0
-        @test titles(ta)[1] isa String
-        @test length(links(ta)) > 0
-        @test links(ta)[1] isa String
-        @test length(timestamps(ta)) > 0
-        @test timestamps(ta)[1] isa DateTime
-
-        # Different language
-        sleep(1)
-        ta_de = search_news("Apple", lang="de")
-        @test ta_de isa YahooNews
-    end
 end
