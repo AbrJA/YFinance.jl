@@ -1,4 +1,4 @@
-const _QuoteSummary_Items = [
+const QUOTE_SUMMARY_ITEMS = [
     "assetProfile",
     "balanceSheetHistory",
     "balanceSheetHistoryQuarterly",
@@ -36,67 +36,32 @@ const _QuoteSummary_Items = [
 ]
 
 """
-    get_quoteSummary(symbol::String; item=nothing)
+    get_quote_summary(symbol::String; item=nothing, throw_error=false)
 
-Retrievs general information from Yahoo Finance stored in a Dict.
+Fetch quote summary data from Yahoo Finance.
 
-## Arguments
-
- * smybol`::String` is a ticker (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)
-
- * item can either be a string or multiple items as a `Vector` of `Strings`. To see valid items call `_QuoteSummary_Items` (not all items are available for all types of securities)
-
- *  throw_error`::Bool` defaults to `false`. If set to true the function errors when the ticker is not valid. Else a warning is given and an empty `Dict{String,Any}` is returned.
-
-# Examples
-```julia-repl
-julia> get_quoteSummary("AAPL")
-
-Dict{String, Any} with 31 entries:
-:assetProfile             => {…
-:recommendationTrend      => {…
-:cashflowStatementHistory => {…
-
-⋮                         => ⋮
-julia> get_quoteSummary("AAPL",item = "quoteType")
-Dict{String, Any} with 13 entries:
-:exchange               => "NMS"
-:quoteType              => "EQUITY"
-:symbol                 => "AAPL"
-⋮                       => ⋮
-```
+# Arguments
+- `symbol::String` — Ticker symbol (e.g. "AAPL", "^GSPC")
+- `item` — A string or vector of strings specifying modules. See `QUOTE_SUMMARY_ITEMS`.
+- `throw_error::Bool` — If `true`, throws on invalid symbol. Default: `false`.
 """
-function get_quoteSummary(symbol::String; item=nothing,throw_error=false)
+function get_quote_summary(symbol::String; item=nothing, throw_error::Bool=false)
     _ensure_session!()
     if isempty(_SESSION.crumb)
         @warn "This item requires a crumb but a crumb could not be successfully retrieved!"
         return nothing
     end
 
-    # Check if symbol is valid
-    old_symbol = symbol
-    symbol = get_valid_symbols(symbol)
-    if isempty(symbol)
-        if throw_error
-            error("$old_symbol is not a valid Symbol!")
-        else
-            @warn "$old_symbol is not a valid Symbol an empy OrderedCollections.OrderedDict was returned!"
-            return Dict{String,Any}()
-        end
-    else
-        symbol = symbol[1]
+    if isequal(item, nothing)
+        item = QUOTE_SUMMARY_ITEMS
     end
 
-    if isequal(item,nothing)
-        item = _QuoteSummary_Items
-    end
+    @assert all(in.(item, (QUOTE_SUMMARY_ITEMS,))) "At least one item is not a valid option. See QUOTE_SUMMARY_ITEMS for valid options."
 
-    @assert all(in.(item, (_QuoteSummary_Items,))) "At least one item is not a valid option. To view options please call _QuoteSummary_Items"
-
-    if typeof(item) <: AbstractString
-        q = Dict("formatted" => "false","modules" => item,"crumb"=>_SESSION.crumb)
+    if item isa AbstractString
+        q = Dict("formatted" => "false", "modules" => item, "crumb" => _SESSION.crumb)
     else
-        q = Dict("formatted" => "false","modules" => join(item,","),"crumb"=>_SESSION.crumb)
+        q = Dict("formatted" => "false", "modules" => join(item, ","), "crumb" => _SESSION.crumb)
     end
 
     url = _build_url("https://query2.finance.yahoo.com/v10/finance/quoteSummary/$(symbol)", q)
@@ -165,7 +130,7 @@ If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called firs
 
 # Examples
 ```julia-repl
-julia> get_quoteSummary("AAPL") |> get_calendar_events
+julia> get_quoteSummary("AAPL") |> calendar_events
 OrderedDict{String, Any} with 3 entries:
   "dividend_date"   => DateTime("2022-11-10T00:00:00")
   "earnings_dates"  => [DateTime("2023-01-25T10:59:00"), DateTime("2023-01-30T12:00:00")]
@@ -187,7 +152,7 @@ julia> get_calendar_events("AAPL") |> DataFrame
    2 │ 2022-11-10T00:00:00  2023-01-30T12:00:00  2022-11-04T00:00:00
 ```
 """
-function get_calendar_events(quoteSummary::AbstractDict)
+function calendar_events(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:calendarEvents)
     @assert in(quote_type,field_types) """Calendar Events dont exist for $(quote_type) items only for $(join(field_types,", "))"""
@@ -197,7 +162,7 @@ function get_calendar_events(quoteSummary::AbstractDict)
                 "exdividend_date" =>unix2datetime(quoteSummary["calendarEvents"]["exDividendDate"]))
     return res
 end
-get_calendar_events(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_calendar_events
+calendar_events(symbol::AbstractString) = get_quote_summary(symbol) |> calendar_events
 
 
 
@@ -214,7 +179,7 @@ If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called firs
 
 # Examples
 ```julia-repl
-julia> get_quoteSummary("AAPL") |> get_earnings_estimates
+julia> get_quoteSummary("AAPL") |> earnings_estimates
 OrderedDict{String, Vector} with 3 entries:
   "quarter"  => ["4Q2021", "1Q2022", "2Q2022", "3Q2022", "4Q2022"]
   "estimate" => [1.89, 1.43, 1.16, 1.27, 1.98]
@@ -239,7 +204,7 @@ julia> get_earnings_estimates("AAPL") |> DataFrame
    5 │ 4Q2022       1.98  missing
 ```
 """
-function get_earnings_estimates(quoteSummary::AbstractDict)
+function earnings_estimates(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:earnings)
     @assert in(quote_type,field_types) """Earnings dont exist for $(quote_type) items only for $(join(field_types,", "))"""
@@ -262,7 +227,7 @@ function get_earnings_estimates(quoteSummary::AbstractDict)
     push!(estimate, quoteSummary["earnings"]["earningsChart"]["currentQuarterEstimate"])
     return OrderedCollections.OrderedDict(["quarter","estimate","actual"] .=> [quarter,estimate,actual])
 end
-get_earnings_estimates(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_earnings_estimates
+earnings_estimates(symbol::AbstractString) = get_quote_summary(symbol) |> earnings_estimates
 
 
 """
@@ -277,7 +242,7 @@ If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called firs
 
 # Examples
 ```julia-repl
-julia> get_quoteSummary("AAPL") |> get_eps
+julia> get_quoteSummary("AAPL") |> earnings_per_share
 OrderedDict{String, Vector} with 4 entries:
   "quarter"  => [DateTime("2021-12-31T00:00:00"), DateTime("2022-03-31T00:00:00"), DateTime("2022-06-30T00:00:00"), DateTime("2022-09-30T00:00:00")]
   "estimate" => [1.89, 1.43, 1.16, 1.27]
@@ -303,7 +268,7 @@ julia> get_eps("AAPL") |> DataFrame
    4 │ 2022-09-30T00:00:00      1.27     1.29     0.016
 ```
 """
-function get_eps(quoteSummary::AbstractDict)
+function earnings_per_share(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:earningsHistory)
     @assert in(quote_type,field_types) """EPS do not exist for $(quote_type) items only for $(join(field_types,", "))"""
@@ -324,7 +289,7 @@ function get_eps(quoteSummary::AbstractDict)
     end
     return OrderedCollections.OrderedDict(["quarter","estimate","actual","surprise"] .=> [quarter,estimate,actual,surprise])
 end
-get_eps(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_eps
+earnings_per_share(symbol::AbstractString) = get_quote_summary(symbol) |> earnings_per_share
 
 
 
@@ -340,7 +305,7 @@ If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called firs
 
 # Examples
 ```julia-repl
-julia> get_quoteSummary("AAPL") |> get_insider_holders
+julia> get_quoteSummary("AAPL") |> insider_holders
 OrderedDict{String, Vector} with 8 entries:
     "name"                 => ["ADAMS KATHERINE L", "BELL JAMES A", "JUNG ANDREA", "KONDO C…
     "relation"             => Union{Missing, String}["General Counsel", "Director", "Direct…
@@ -382,7 +347,7 @@ julia> get_insider_holders("AAPL") |> DataFrame
                                                                          5 columns omitted
 ```
 """
-function get_insider_holders(quoteSummary::AbstractDict)
+function insider_holders(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:insiderHolders)
     @assert in(quote_type,field_types) """Insider Holdings dont exist for $(quote_type) items only for $(join(field_types,", "))"""
@@ -414,7 +379,7 @@ function get_insider_holders(quoteSummary::AbstractDict)
                [name, relation,des,lasttrandt,direct,direct_dt,indirect,indirect_dt])
     return res
 end
-get_insider_holders(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_insider_holders
+insider_holders(symbol::AbstractString) = get_quote_summary(symbol) |> insider_holders
 
 
 
@@ -430,7 +395,7 @@ If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called firs
 
 # Examples
 ```julia-repl
-julia> get_quoteSummary("AAPL") |> get_insider_transactions
+julia> get_quoteSummary("AAPL") |> insider_transactions
 OrderedDict{String, Vector} with 7 entries:
   "filerName"       => ["KONDO CHRISTOPHER", "MAESTRI LUCA", "O'BRIEN DEIRDRE", "KONDO CH…
   "filerRelation"   => Union{Missing, String}["Officer", "Chief Financial Officer", "Offi…
@@ -473,7 +438,7 @@ julia> get_insider_transactions("AAPL") |> DataFrame
                                                              4 columns and 62 rows omitted
 ```
 """
-function get_insider_transactions(quoteSummary::AbstractDict)
+function insider_transactions(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:insiderTransactions)
     @assert in(quote_type,field_types) """Insider Transactions dont exist for $(quote_type) items only for $(join(field_types,", "))"""
@@ -503,7 +468,7 @@ function get_insider_transactions(quoteSummary::AbstractDict)
                [name, relation,text,date,ownership,shares,value])
     return res
 end
-get_insider_transactions(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_insider_transactions
+insider_transactions(symbol::AbstractString) = get_quote_summary(symbol) |> insider_transactions
 
 
 """
@@ -518,7 +483,7 @@ If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called firs
 
 # Examples
 ```julia-repl
-julia> get_quoteSummary("AAPL") |> get_institutional_ownership
+julia> get_quoteSummary("AAPL") |> institutional_ownership
 OrderedDict{String, Vector} with 6 entries:
   "organization" => ["Vanguard Group, Inc. (The)", "Blackrock Inc.", "Berkshire Hathaway,…
   "reportDate"   => Union{Missing, DateTime}[DateTime("2022-09-30T00:00:00"), DateTime("2…
@@ -555,7 +520,7 @@ julia> get_institutional_ownership("AAPL") |> DataFrame
                                                                          2 columns omitted
 ```
 """
-function get_institutional_ownership(quoteSummary::AbstractDict)
+function institutional_ownership(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:institutionOwnership)
     @assert in(quote_type,field_types) """Institutional Ownership does not exist for $(quote_type) items only for $(join(field_types,", "))"""
@@ -583,7 +548,7 @@ function get_institutional_ownership(quoteSummary::AbstractDict)
                [organization,reportDate,pctHeld,position,value,pctChange])
     return res
 end
-get_institutional_ownership(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_institutional_ownership
+institutional_ownership(symbol::AbstractString) = get_quote_summary(symbol) |> institutional_ownership
 
 
 """
@@ -598,7 +563,7 @@ If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called firs
 
 # Examples
 ```julia-repl
-julia> get_quoteSummary("AAPL") |> get_major_holders_breakdown
+julia> get_quoteSummary("AAPL") |> major_holders_breakdown
 OrderedDict{String, Real} with 4 entries:
   "insidersPercentHeld"          => 0.00072
   "institutionsPercentHeld"      => 0.60915
@@ -613,7 +578,7 @@ OrderedDict{String, Real} with 4 entries:
   "institutionsCount"            => 5526
 ```
 """
-function get_major_holders_breakdown(quoteSummary::AbstractDict)
+function major_holders_breakdown(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:majorHoldersBreakdown)
     @assert in(quote_type,field_types) """The breadkown of major holders does not exist for $(quote_type) items only for $(join(field_types,", "))"""
@@ -622,7 +587,7 @@ function get_major_holders_breakdown(quoteSummary::AbstractDict)
     delete!(result,"maxAge")
     return result
 end
-get_major_holders_breakdown(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_major_holders_breakdown
+major_holders_breakdown(symbol::AbstractString) = get_quote_summary(symbol) |> major_holders_breakdown
 
 
 
@@ -638,7 +603,7 @@ If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called firs
 
 # Examples
 ```julia-repl
-julia> get_quoteSummary("AAPL") |> get_recommendation_trend
+julia> get_quoteSummary("AAPL") |> recommendation_trend
 OrderedDict{String, Vector} with 6 entries:
   "period"     => ["0m", "-1m", "-2m", "-3m"]
   "strongbuy"  => [11, 11, 11, 13]
@@ -668,7 +633,7 @@ julia> get_recommendation_trend("AAPL") |> DataFrame
    4 │ -3m            13     20      8      0           0
 ```
 """
-function get_recommendation_trend(quoteSummary::AbstractDict)
+function recommendation_trend(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:recommendationTrend)
     @assert in(quote_type,field_types) """The recommendation trend does not exist for $(quote_type) items only for $(join(field_types,", "))"""
@@ -696,7 +661,7 @@ function get_recommendation_trend(quoteSummary::AbstractDict)
                [period,strongbuy,buy,hold,sell,strongsell])
     return res
 end
-get_recommendation_trend(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_recommendation_trend
+recommendation_trend(symbol::AbstractString) = get_quote_summary(symbol) |> recommendation_trend
 
 
 
@@ -712,7 +677,7 @@ If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called firs
 
 # Examples
 ```julia-repl
-julia> get_quoteSummary("AAPL") |> get_summary_detail
+julia> get_quoteSummary("AAPL") |> summary_detail
 OrderedDict{String, Any} with 41 entries:
   "priceHint"                  => 2
   "previousClose"              => 126.04
@@ -755,7 +720,7 @@ OrderedDict{String, Any} with 41 entries:
   ⋮                            => ⋮
 ```
 """
-function get_summary_detail(quoteSummary::AbstractDict)
+function summary_detail(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:summaryDetail)
     @assert in(quote_type,field_types) """Summary details dont exist for $(quote_type) items only for $(join(field_types,", "))"""
@@ -764,7 +729,7 @@ function get_summary_detail(quoteSummary::AbstractDict)
     delete!(result,"maxAge")
     return result
 end
-get_summary_detail(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_summary_detail
+summary_detail(symbol::AbstractString) = get_quote_summary(symbol) |> summary_detail
 
 
 
@@ -780,7 +745,7 @@ If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called firs
 
 # Examples
 ```julia-repl
-julia> get_quoteSummary("AAPL") |> get_sector_industry
+julia> get_quoteSummary("AAPL") |> sector_industry
 OrderedDict{String, String} with 2 entries:
   "sector"   => "Technology"
   "industry" => "Consumer Electronics"
@@ -791,14 +756,14 @@ OrderedDict{String, String} with 2 entries:
   "industry" => "Consumer Electronics"
 ```
 """
-function get_sector_industry(quoteSummary::AbstractDict)
+function sector_industry(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:summaryProfile)
     @assert in(quote_type,field_types) """The summary profile does not exist for $(quote_type) items only for $(join(field_types,", "))"""
     result = OrderedCollections.OrderedDict("sector" =>quoteSummary["summaryProfile"]["sector"], "industry"=>quoteSummary["summaryProfile"]["industry"])
     return result
 end
-get_sector_industry(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_sector_industry
+sector_industry(symbol::AbstractString) = get_quote_summary(symbol) |> sector_industry
 
 
 """
@@ -813,7 +778,7 @@ If a ticker symbol is provided `get_quoteSummary(symbol::String)` is called firs
 
 # Examples
 ```julia-repl
-julia> get_quoteSummary("AAPL") |> get_upgrade_downgrade_history
+julia> get_quoteSummary("AAPL") |> upgrade_downgrade_history
 OrderedDict{String, Vector} with 5 entries:
   "firm"      => ["JP Morgan", "UBS", "Morgan Stanley", "B of A Securities", "Barclays", …
   "date"      => Union{Missing, DateTime}[DateTime("2022-12-20T11:47:33"), DateTime("2022…
@@ -852,7 +817,7 @@ julia> get_upgrade_downgrade_history("AAPL") |> DataFrame
                                                                 859 rows omitted
 ```
 """
-function get_upgrade_downgrade_history(quoteSummary::AbstractDict)
+function upgrade_downgrade_history(quoteSummary::AbstractDict)
     quote_type = _quote_type(quoteSummary)
     field_types = _check_field_quotetype(:upgradeDowngradeHistory)
     @assert in(quote_type,field_types) """The history of up- and downgrades does not exist for $(quote_type) items only for $(join(field_types,", "))"""
@@ -877,4 +842,4 @@ function get_upgrade_downgrade_history(quoteSummary::AbstractDict)
                [firm,date,toGrade,fromGrade,action])
     return res
 end
-get_upgrade_downgrade_history(symbol::AbstractString) =  get_quoteSummary(symbol) |> get_upgrade_downgrade_history
+upgrade_downgrade_history(symbol::AbstractString) = get_quote_summary(symbol) |> upgrade_downgrade_history

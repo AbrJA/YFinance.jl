@@ -1,16 +1,15 @@
 """
-    get_Options(symbol::String)
+    get_options(symbol::String; throw_error=false, expiration_date=nothing)
 
-Retrievs options data from Yahoo Finance stored in a OrderedCollections.OrderedDict with two items. One contains Call options the other Put options. These subitems are OrderedCollections.OrderedDict themselves.
-The call and put options OrderedCollections.OrderedDict can readily be transformed to a DataFrame.
+Fetch options data from Yahoo Finance.
+
+Returns an `OrderedDict` with "calls" and "puts" entries, each an `OrderedDict`
+that can be piped to `DataFrame`.
 
 # Arguments
-
- * smybol`::String` is a ticker (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)
-
- *  throw_error`::Bool` defaults to `false`. If set to true the function errors when the ticker is not valid. Else a warning is given and an empty OrderedCollections.OrderedDict is returned.
-
- *  experitation_date`::Union{Date,Nothing}` defaults to `nothing`. If set to a date the API request is made for a particular date.
+- `symbol::String` — Ticker symbol (e.g. "AAPL", "^GSPC")
+- `throw_error::Bool` — If `true`, throws on invalid symbol. Default: `false`.
+- `expiration_date::Union{Date,Nothing}` — Filter by expiration date. Default: `nothing`.
 
 # Examples
 ```julia-repl
@@ -49,26 +48,12 @@ julia> vcat( [DataFrame(i) for i in values(data)]...)
                                                             9 columns and 136 rows omitted
 ```
 """
-function get_Options(symbol::String; throw_error=false, expiration_date::Union{Date,Nothing}=nothing)
+function get_options(symbol::String; throw_error::Bool=false, expiration_date::Union{Date,Nothing}=nothing)
     _ensure_session!()
     if isempty(_SESSION.crumb)
         @warn "This item requires a crumb but a crumb could not be successfully retrieved!"
         return nothing
     end
-
-     # Check if symbol is valid
-     old_symbol = symbol
-     symbol = get_valid_symbols(symbol)
-     if isempty(symbol)
-         if throw_error
-             error("$old_symbol is not a valid Symbol!")
-         else
-             @warn "$old_symbol is not a valid Symbol an empy OrderedCollections.OrderedDict was returned!"
-             return OrderedCollections.OrderedDict()
-         end
-     else
-         symbol = symbol[1]
-     end
 
     # Construct API request
     query_params = Dict("formatted" => "false", "crumb" => _SESSION.crumb)
@@ -81,8 +66,12 @@ function get_Options(symbol::String; throw_error=false, expiration_date::Union{D
     isnothing(resp) && return OrderedCollections.OrderedDict()
 
     res = JSON.parse(String(copy(resp.body)))
-    puts = res["optionChain"]["result"][1]["options"][1]["puts"]
-    calls = res["optionChain"]["result"][1]["options"][1]["calls"]
+    result_data = get(get(res, "optionChain", Dict()), "result", [])
+    if isempty(result_data) || isempty(get(result_data[1], "options", []))
+        return OrderedCollections.OrderedDict()
+    end
+    puts = result_data[1]["options"][1]["puts"]
+    calls = result_data[1]["options"][1]["calls"]
     res_p = OrderedCollections.OrderedDict(
         "contractSymbol"=> [],
         "strike"=> [],

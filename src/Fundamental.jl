@@ -1,4 +1,4 @@
-_Fundamental_Types = OrderedCollections.OrderedDict(
+const FUNDAMENTAL_TYPES = OrderedCollections.OrderedDict(
     "income_statement"=> [
         "Amortization",
         "AmortizationOfIntangiblesIncomeStatement",
@@ -383,7 +383,7 @@ _Fundamental_Types = OrderedCollections.OrderedDict(
     ]
 )
 
-_Fundamental_Intervals = [
+const FUNDAMENTAL_INTERVALS = [
     "annual",
     "quarterly",
     "monthly",
@@ -399,7 +399,7 @@ Retrievs financial statement information from Yahoo Finance stored in a OrderedC
 
  * `smybol::String` is a ticker (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)
 
- * `item::String` can either be an entire financial statement or a subitem. Entire financial statements:`"income_statement", "valuation", "cash_flow", "balance_sheet"`. To see valid sub items grouped by financial statement type in a `OrderedCollections.OrderedDict` call `_Fundamental_Types`
+ * `item::String` can either be an entire financial statement or a subitem. Entire financial statements:`"income_statement", "valuation", "cash_flow", "balance_sheet"`. To see valid sub items grouped by financial statement type in a `OrderedCollections.OrderedDict` call `FUNDAMENTAL_TYPES`
 
  * `interval::String` can be one of "annual", "quarterly", "monthly"
 
@@ -433,35 +433,20 @@ julia> get_Fundamental("AAPL", "InterestExpense","quarterly","2000-01-01","2022-
    4 │ 2022-09-30T00:00:00  827000000
 ```
 """
-function get_Fundamental(symbol::AbstractString, item::AbstractString,interval::AbstractString, startdt, enddt;throw_error=false)
-
-     # Check if symbol is valid
-     old_symbol = symbol
-     symbol = get_valid_symbols(symbol)
-     if isempty(symbol)
-         if throw_error
-             error("$old_symbol is not a valid Symbol!")
-         else
-             @warn "$old_symbol is not a valid Symbol an empy OrderedDict was returned!"
-             return OrderedCollections.OrderedDict()
-         end
-     else
-         symbol = symbol[1]
-     end
+function get_fundamentals(symbol::AbstractString, item::AbstractString,interval::AbstractString, startdt, enddt;throw_error=false)
 
     # Check Start and end dates.
     if !isequal(startdt,"") || !isequal(enddt,"")
-        range = ""
         startdt, enddt = _date_to_unix(startdt), _date_to_unix(enddt)
     end
-    @assert in(interval, _Fundamental_Intervals) "Chosen interval is not supported. Choose one of: annual, quarterly, monthly"
+    @assert in(interval, FUNDAMENTAL_INTERVALS) "Chosen interval is not supported. Choose one of: annual, quarterly, monthly"
     #Build Query:
-    if in(item, keys(_Fundamental_Types))
+    if in(item, keys(FUNDAMENTAL_TYPES))
         entire_statement = true
-        query_items = join(string.(interval,_Fundamental_Types[item]),",")
+        query_items = join(string.(interval,FUNDAMENTAL_TYPES[item]),",")
     else
         entire_statement = false
-        @assert in(item, vcat([_Fundamental_Types[i] for i in keys(_Fundamental_Types)]...)) "Chosen item is not supported. View supported items by calling _Fundamental_Types"
+        @assert in(item, vcat([FUNDAMENTAL_TYPES[i] for i in keys(FUNDAMENTAL_TYPES)]...)) "Chosen item is not supported. View supported items by calling FUNDAMENTAL_TYPES"
         query_items = string(interval, item)
     end
     q = Dict(

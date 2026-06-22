@@ -1,41 +1,11 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Search_Symbol.jl — Symbol search and market listing
+# Search_Symbol.jl — Symbol search
 # ─────────────────────────────────────────────────────────────────────────────
-
-const MARKETS = ("AMEX", "NASDAQ", "NYSE", "SZSE")
-
-"""
-    get_all_symbols(market::String) -> Vector{String}
-
-Fetch all ticker symbols from a given market.
-
-# Supported markets
-`AMEX`, `NASDAQ`, `NYSE`, `SZSE`
-
-# Example
-```julia
-julia> get_all_symbols("NYSE")
-3127-element Vector{String}:
- "A"
- "AA"
- ⋮
-```
-"""
-function get_all_symbols(market::AbstractString)::Vector{String}
-    uppercase(market) in MARKETS || throw(ArgumentError("Invalid market '$(market)'. Supported: $(join(MARKETS, ", "))"))
-    url = "https://dumbstockapi.com/stock?format=tickers-only&exchange=$market"
-    resp = _yahoo_get(url, market; timeout=10, throw_error=true)
-    raw = String(resp.body)
-    # Response is JSON array: ["SYM1","SYM2",...]
-    symbols = split(raw, ',')
-    # Strip brackets and quotes
-    return [replace(s, r"[\[\]\"]" => "") for s in symbols]
-end
 
 # ─── Search Item Struct ───────────────────────────────────────────────────────
 
 """
-    YahooSearchItem
+    SearchResult
 
 A single search result from Yahoo Finance symbol search.
 
@@ -47,7 +17,7 @@ A single search result from Yahoo Finance symbol search.
 - `sector::String` — Sector (equity only, empty otherwise)
 - `industry::String` — Industry (equity only, empty otherwise)
 """
-struct YahooSearchItem
+struct SearchResult
     symbol::String
     shortname::String
     exchange::String
@@ -57,19 +27,19 @@ struct YahooSearchItem
 end
 
 """
-    YahooSearch <: AbstractVector{YahooSearchItem}
+    SearchResults <: AbstractVector{SearchResult}
 
 A collection of search results. Behaves as an `AbstractVector`.
 """
-struct YahooSearch <: AbstractVector{YahooSearchItem}
-    items::Vector{YahooSearchItem}
+struct SearchResults <: AbstractVector{SearchResult}
+    items::Vector{SearchResult}
 end
 
-Base.size(x::YahooSearch) = size(x.items)
-Base.getindex(x::YahooSearch, i::Int) = x.items[i]
-Base.IndexStyle(::Type{YahooSearch}) = IndexLinear()
+Base.size(x::SearchResults) = size(x.items)
+Base.getindex(x::SearchResults, i::Int) = x.items[i]
+Base.IndexStyle(::Type{SearchResults}) = IndexLinear()
 
-function Base.show(io::IO, item::YahooSearchItem)
+function Base.show(io::IO, item::SearchResult)
     println(io)
     println(io, "Symbol:\t $(item.symbol)")
     println(io, "Name:\t $(item.shortname)")
@@ -81,8 +51,8 @@ function Base.show(io::IO, item::YahooSearchItem)
     end
 end
 
-function Base.show(io::IO, ::MIME"text/plain", x::YahooSearch)
-    print(io, "$(length(x))-element YahooSearch:")
+function Base.show(io::IO, ::MIME"text/plain", x::SearchResults)
+    print(io, "$(length(x))-element SearchResults:")
     for item in x.items
         show(io, item)
     end
@@ -91,7 +61,7 @@ end
 # ─── Search Function ─────────────────────────────────────────────────────────
 
 """
-    get_symbols(search_term::String) -> YahooSearch
+    search_symbols(search_term::String) -> SearchResults
 
 Search for securities by name or keyword.
 
@@ -99,25 +69,15 @@ Search for securities by name or keyword.
 - `search_term::String` — Company name, ticker, or keyword (e.g., "microsoft", "micro")
 
 # Returns
-A `YahooSearch` (AbstractVector of `YahooSearchItem`).
-
-# Example
-```julia
-julia> get_symbols("micro")
-7-element YahooSearch:
-Symbol:  MSFT
-Name:    Microsoft Corporation
-Type:    EQUITY
-...
-```
+A `SearchResults` (AbstractVector of `SearchResult`).
 """
-function get_symbols(search_term::String)::YahooSearch
+function search_symbols(search_term::String)::SearchResults
     url = _build_url("https://query2.finance.yahoo.com/v1/finance/search", Dict("q" => search_term))
     resp = _yahoo_get(url, search_term; timeout=10, throw_error=true)
     parsed = JSON.parse(String(copy(resp.body)))
     quotes = get(parsed, "quotes", [])
 
-    items = YahooSearchItem[]
+    items = SearchResult[]
     sizehint!(items, length(quotes))
     for q in quotes
         symbol = string(get(q, "symbol", ""))
@@ -126,7 +86,7 @@ function get_symbols(search_term::String)::YahooSearch
         quoteType = string(get(q, "quoteType", ""))
         sector = string(get(q, "sector", ""))
         industry = string(get(q, "industry", ""))
-        push!(items, YahooSearchItem(symbol, shortname, exchange, quoteType, sector, industry))
+        push!(items, SearchResult(symbol, shortname, exchange, quoteType, sector, industry))
     end
-    return YahooSearch(items)
+    return SearchResults(items)
 end

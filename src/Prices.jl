@@ -1,4 +1,4 @@
-const _BASE_URL_ = "https://query2.finance.yahoo.com"
+const _BASE_URL = "https://query2.finance.yahoo.com"
 
 # date to unix conversion
 _date_to_unix(dt::Date) = Int(floor(datetime2unix(DateTime(dt))))
@@ -171,7 +171,7 @@ function get_prices(symbol::String, startdt::Int, enddt::Int;
         "includePrePost" => prepost,
         "events" => divsplits ? "div,splits" : ""
     )
-    url = _build_url("$(_BASE_URL_)/v8/finance/chart/$(uppercase(symbol))", parameters)
+    url = _build_url("$(_BASE_URL)/v8/finance/chart/$(uppercase(symbol))", parameters)
 
     resp = _yahoo_get(url, symbol; timeout=timeout, throw_error=throw_error,
                       empty_result=OrderedDict{String, Union{String,Vector{DateTime},Vector{Float64}}}())
@@ -421,7 +421,7 @@ function get_splits(symbol::String;
         "interval" => "1d",
         "events" => "splits"
     )
-    url = _build_url("$(_BASE_URL_)/v8/finance/chart/$(uppercase(symbol))", parameters)
+    url = _build_url("$(_BASE_URL)/v8/finance/chart/$(uppercase(symbol))", parameters)
 
     resp = _yahoo_get(url, symbol; timeout=timeout, throw_error=throw_error)
     isnothing(resp) && return _empty_splits_dict(symbol)
@@ -550,7 +550,7 @@ function get_dividends(symbol::String;
         "interval" => "1d",
         "events" => "div"
     )
-    url = _build_url("$(_BASE_URL_)/v8/finance/chart/$(uppercase(symbol))", parameters)
+    url = _build_url("$(_BASE_URL)/v8/finance/chart/$(uppercase(symbol))", parameters)
 
     resp = _yahoo_get(url, symbol; timeout=timeout, throw_error=throw_error)
     isnothing(resp) && return _empty_dividends_dict(symbol)
@@ -584,14 +584,3 @@ end
 
 
 
-
-"""
-    sink_prices_to(::Type{OrderedDict},x::OrderedDict{String,Any})
-
-Converts an exisitng OrderedDict output from get_prices to an OrderedDict
-If TimeSeries.jl or TSFrames.jl are loaded this function is extended to allow sinking into these types.
-
-"""
-function sink_prices_to(::Type{OrderedDict},x::OrderedDict{String,Union{String,Vector{DateTime},Vector{Float64}}})
-    return x
-end

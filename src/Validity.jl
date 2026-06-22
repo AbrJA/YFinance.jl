@@ -1,20 +1,15 @@
 """
-    validate_symbol(symbol::AbstractString)
+    is_valid_symbol(symbol::AbstractString)
 
-Validates a Symbol (Ticker). Returns `true` if the ticker is valid and `false` if the ticker is not valid.
+Check if a ticker symbol is valid. Returns `true` if valid, `false` otherwise.
 
 # Arguments
-
- * smybol`::String` is a ticker (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)
-
-# How it works
-
-Makes a lightweight chart request — returns true if HTTP 200, false otherwise.
+- `symbol::AbstractString` — A ticker (e.g. "AAPL", "^GSPC")
 """
-function validate_symbol(symbol::AbstractString)
+function is_valid_symbol(symbol::AbstractString)
     try
         q = Dict("range"=>"1d", "interval"=>"1d")
-        url = _build_url("$(_BASE_URL_)/v8/finance/chart/$(symbol)", q)
+        url = _build_url("$(_BASE_URL)/v8/finance/chart/$(symbol)", q)
         resp = _request(url; timeout=10, throw_on_error=false)
         return resp.status == 200
     catch
@@ -23,52 +18,27 @@ function validate_symbol(symbol::AbstractString)
 end
 
 """
-    get_valid_symbols(symbol::AbstractString)
+    valid_symbols(symbol::AbstractString)
 
-Takes a symbol. If the symbol is valid it returns the symbol in a vector if not it returns and empy vector.
-
-# Arguments
-
- * smybol`::AbstractString` is a ticker (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)
-
-# Examples
-
-```julia-repl
-julia> get_valid_symbols("AAPL")
-1-element Vector{String}:
- "AAPL"
-
-julia> get_valid_symbols("asdfs")
- String[]
-```
-
-"""
-function get_valid_symbols(symbol::AbstractString)
-    valid = validate_symbol(symbol)
-    return  valid ? [symbol] : String[]
-end #end get_valid_symbols
-
-
-"""
-    get_valid_symbols(symbol::AbstractVector{<:AbstractString})
-
-Takes a `AbstractVector` of symbols and returns only the valid ones.
+If the symbol is valid, returns it in a vector; otherwise returns an empty vector.
 
 # Arguments
-
- * smybol`::AbstractVector{<:AbstractString}` is a vector of tickers (e.g. AAPL for Apple Computers, or ^GSPC for the S&P500)
-
-# Examples
-
-```julia-repl
-julia> get_valid_symbols("AAPL","AMD","asdfs")
-2-element Vector{String}:
- "AAPL"
- "AMD"
-```
+- `symbol::AbstractString` — A ticker (e.g. "AAPL", "^GSPC")
+"""
+function valid_symbols(symbol::AbstractString)
+    valid = is_valid_symbol(symbol)
+    return valid ? [symbol] : String[]
+end
 
 """
-function get_valid_symbols(symbol::AbstractVector{<:AbstractString})
-    idx = collect(validate_symbol.(symbol))
-    return  symbol[idx]
-end #end get_valid_symbols
+    valid_symbols(symbols::AbstractVector{<:AbstractString})
+
+Filter a vector of symbols, returning only the valid ones.
+
+# Arguments
+- `symbols::AbstractVector{<:AbstractString}` — Vector of tickers
+"""
+function valid_symbols(symbols::AbstractVector{<:AbstractString})
+    idx = collect(is_valid_symbol.(symbols))
+    return symbols[idx]
+end

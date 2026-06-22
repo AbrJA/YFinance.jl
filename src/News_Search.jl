@@ -23,38 +23,38 @@ struct NewsItem
 end
 
 """
-    YahooNews <: AbstractVector{NewsItem}
+    NewsResults <: AbstractVector{NewsItem}
 
 A collection of news articles. Behaves as an `AbstractVector`.
 """
-struct YahooNews <: AbstractVector{NewsItem}
+struct NewsResults <: AbstractVector{NewsItem}
     items::Vector{NewsItem}
 end
 
-Base.size(x::YahooNews) = size(x.items)
-Base.getindex(x::YahooNews, i::Int) = x.items[i]
-Base.IndexStyle(::Type{YahooNews}) = IndexLinear()
+Base.size(x::NewsResults) = size(x.items)
+Base.getindex(x::NewsResults, i::Int) = x.items[i]
+Base.IndexStyle(::Type{NewsResults}) = IndexLinear()
 
 """
-    titles(x::YahooNews) -> Vector{String}
+    titles(x::NewsResults) -> Vector{String}
 
 Extract all article titles.
 """
-titles(x::YahooNews)::Vector{String} = [item.title for item in x.items]
+titles(x::NewsResults)::Vector{String} = [item.title for item in x.items]
 
 """
-    links(x::YahooNews) -> Vector{String}
+    links(x::NewsResults) -> Vector{String}
 
 Extract all article links.
 """
-links(x::YahooNews)::Vector{String} = [item.link for item in x.items]
+links(x::NewsResults)::Vector{String} = [item.link for item in x.items]
 
 """
-    timestamps(x::YahooNews) -> Vector{DateTime}
+    timestamps(x::NewsResults) -> Vector{DateTime}
 
 Extract all article timestamps.
 """
-timestamps(x::YahooNews)::Vector{DateTime} = [item.timestamp for item in x.items]
+timestamps(x::NewsResults)::Vector{DateTime} = [item.timestamp for item in x.items]
 
 function Base.show(io::IO, x::NewsItem)
     str = join(x.symbols, ", ")
@@ -65,8 +65,8 @@ function Base.show(io::IO, x::NewsItem)
     println(io, "Symbols:\t $(str)")
 end
 
-function Base.show(io::IO, ::MIME"text/plain", x::YahooNews)
-    print(io, "$(length(x))-element YahooNews:")
+function Base.show(io::IO, ::MIME"text/plain", x::NewsResults)
+    print(io, "$(length(x))-element NewsResults:")
     for item in x.items
         println(io)
         show(io, item)
@@ -93,7 +93,7 @@ const _NEWS_LANGUAGES = Dict{String,Tuple{String,String}}(
 )
 
 """
-    search_news(query::String; lang="en-us") -> YahooNews
+    search_news(query::String; lang="en-us") -> NewsResults
 
 Search for news articles related to a symbol or topic.
 
@@ -102,9 +102,9 @@ Search for news articles related to a symbol or topic.
 - `lang::String` — Language/region. Supported: $(join(sort(collect(keys(_NEWS_LANGUAGES))), ", "))
 
 # Returns
-A `YahooNews` (AbstractVector of `NewsItem`).
+A `NewsResults` (AbstractVector of `NewsItem`).
 """
-function search_news(query::String; lang::String="en-us")::YahooNews
+function search_news(query::String; lang::String="en-us")::NewsResults
     haskey(_NEWS_LANGUAGES, lang) || throw(ArgumentError(
         "Language '$lang' not supported. Choose from: $(join(sort(collect(keys(_NEWS_LANGUAGES))), ", "))"
     ))
@@ -126,5 +126,5 @@ function search_news(query::String; lang::String="en-us")::YahooNews
         symbols = haskey(article, "relatedTickers") ? String.(article["relatedTickers"]) : String[]
         push!(items, NewsItem(title, publisher, link, ts, symbols))
     end
-    return YahooNews(items)
+    return NewsResults(items)
 end

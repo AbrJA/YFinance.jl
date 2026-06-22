@@ -4,6 +4,13 @@
 #           connection pooling via persistent Downloader
 # ─────────────────────────────────────────────────────────────────────────────
 
+"""
+    _rand_header() -> Dict{String,String}
+
+Select a random browser header from the HEADERS pool.
+"""
+_rand_header()::Dict{String,String} = rand(HEADERS)
+
 # ─── URL Encoding ─────────────────────────────────────────────────────────────
 
 const _SAFE_URI_CHARS = Set{Char}(vcat(
@@ -385,13 +392,6 @@ function _parse_yahoo_error(body::Vector{UInt8}, status::Int, symbol::String="")
         text = String(copy(body))
         return isempty(text) ? "HTTP error $status for $symbol" : strip(text)
     end
-end
-
-# ─── Backward-compatible API ──────────────────────────────────────────────────
-
-function _make_headers(; extra_headers::Dict=Dict{String,String}(), cookies::Dict=Dict{String,String}(), use_random_header::Bool=true)
-    _ensure_session!()
-    return _build_headers(cookies)
 end
 
 # ─── High-level Yahoo Request ─────────────────────────────────────────────────

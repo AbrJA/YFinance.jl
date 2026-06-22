@@ -3,8 +3,6 @@
 # Allows direct piping to DataFrame: prices("AAPL") |> DataFrame
 # ─────────────────────────────────────────────────────────────────────────────
 
-using Tables
-
 # ─── YFinanceTable wrapper ────────────────────────────────────────────────────
 
 """
