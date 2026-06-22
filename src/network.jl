@@ -7,9 +7,9 @@
 """
     _rand_header() -> Dict{String,String}
 
-Select a random browser header from the HEADERS pool.
+Generate a random browser header for anti-fingerprinting.
 """
-_rand_header()::Dict{String,String} = rand(HEADERS)
+_rand_header()::Dict{String,String} = _random_header()
 
 # ─── URL Encoding ─────────────────────────────────────────────────────────────
 

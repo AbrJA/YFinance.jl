@@ -195,10 +195,15 @@
         @test YFinance._SESSION.max_retries >= 1
     end
 
-    @testset "Headers Pool" begin
-        @test length(YFinance.HEADERS) == 100
-        h = YFinance.HEADERS[1]
+    @testset "Header Generation" begin
+        h = YFinance._random_header()
+        @test h isa Dict{String,String}
         @test haskey(h, "User-Agent")
         @test contains(h["User-Agent"], "Mozilla")
+        @test haskey(h, "accept")
+        @test haskey(h, "upgrade-insecure-requests")
+        # Each call produces a header (may differ)
+        h2 = YFinance._random_header()
+        @test h2 isa Dict{String,String}
     end
 end
