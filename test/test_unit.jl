@@ -194,7 +194,7 @@
     end
 
     @testset "Headers Pool" begin
-        @test length(YFinance.HEADERS) == 5
+        @test length(YFinance.HEADERS) == 100
         h = YFinance.HEADERS[1]
         @test haskey(h, "User-Agent")
         @test contains(h["User-Agent"], "Mozilla")

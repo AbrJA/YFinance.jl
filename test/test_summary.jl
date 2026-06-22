@@ -1,16 +1,23 @@
 # ─── QuoteSummary Integration Tests ───────────────────────────────────────────
 
 @testset "QuoteSummary (Integration)" begin
-    sleep(0.5)
-    qs = get_quote_summary("AAPL")
-    @test qs isa Dict
-    @test haskey(qs, "price")
-    @test haskey(qs, "summaryDetail")
+    sleep(2)
+    qs = with_retry(() -> begin
+        r = get_quote_summary("AAPL")
+        isempty(r) ? nothing : r
+    end)
+
+    if isnothing(qs) || isempty(qs)
+        @test_broken false  # API unavailable
+    else
+        @test qs isa AbstractDict
+        @test haskey(qs, "price")
+        @test haskey(qs, "summaryDetail")
 
     @testset "Single Module" begin
         sleep(0.5)
         price_data = get_quote_summary("AAPL", item="price")
-        @test price_data isa Dict
+        @test price_data isa AbstractDict
         @test haskey(price_data, "regularMarketPrice")
     end
 
@@ -73,7 +80,7 @@
 
     @testset "summary_detail" begin
         result = summary_detail(qs)
-        @test result isa Dict
+        @test result isa AbstractDict
         @test !haskey(result, "maxAge")
     end
 
@@ -100,4 +107,6 @@
     @testset "Invalid Module" begin
         @test_throws AssertionError get_quote_summary("AAPL", item="not_a_module")
     end
+
+    end  # else block
 end

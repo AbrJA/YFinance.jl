@@ -1,12 +1,11 @@
 # ─── Options Integration Tests ────────────────────────────────────────────────
 
 @testset "Options (Integration)" begin
-    sleep(0.5)
-    chain = get_options("AAPL")
+    sleep(2)
+    chain = with_retry(() -> get_options("AAPL"))
     @test chain isa OptionChain
     @test chain.ticker == "AAPL"
 
-    # May be empty on weekends but struct is valid
     if !isempty(chain)
         @test length(chain.calls) > 0
         @test length(chain.puts) > 0
@@ -25,10 +24,12 @@
         @test Tables.istable(typeof(chain))
         cols = Tables.getcolumn(chain, :strike)
         @test length(cols) == length(chain.calls) + length(chain.puts)
+    else
+        @test_broken !isempty(chain)
     end
 
     @testset "Invalid Symbol" begin
-        sleep(0.5)
+        sleep(2)
         bad = get_options("XYZNOTREAL999", throw_error=false)
         @test bad isa OptionChain
         @test isempty(bad)

@@ -1,18 +1,28 @@
-# YFinance.jl
+<p align="center">
+  <img src="Logo/Logo.jpg" width="220" alt="YFinance.jl"/>
+</p>
 
-[![Build Status](https://github.com/eohne/YFinance.jl/actions/workflows/CI.yml/badge.svg?branch=master)](https://github.com/eohne/YFinance.jl/actions/workflows/CI.yml?query=branch%3Amaster)
-[![codecov](https://codecov.io/github/eohne/YFinance.jl/graph/badge.svg?token=MYY3JY9HBH)](https://codecov.io/github/eohne/YFinance.jl)
+<h1 align="center">YFinance.jl</h1>
 
-Julia interface to Yahoo Finance API.
+<p align="center">
+  <em>Fast, typed Yahoo Finance API client for Julia</em>
+</p>
+
+<p align="center">
+  <a href="https://github.com/eohne/YFinance.jl/actions"><img src="https://img.shields.io/github/actions/workflow/status/eohne/YFinance.jl/CI.yml?branch=master&style=flat-square" alt="CI"/></a>
+  <a href="https://eohne.github.io/YFinance.jl/dev/"><img src="https://img.shields.io/badge/docs-dev-blue?style=flat-square" alt="Docs"/></a>
+  <img src="https://img.shields.io/badge/julia-%E2%89%A5%201.10-blue?style=flat-square" alt="Julia 1.10+"/>
+</p>
+
+---
 
 ## Features
 
-- Historical and intraday prices (equities, FX, futures, ETFs, mutual funds, crypto)
-- Fundamentals (income statement, balance sheet, cash flow, valuations)
-- Options chains (calls/puts by expiration)
-- Quote summary data (sector, industry, earnings, insider activity, etc.)
-- Symbol search and news
-- Tables.jl interface — pipe directly to `DataFrame`
+- **Typed return structs** — `PriceData`, `DividendData`, `SplitData`, `OptionChain` with full type stability
+- **Tables.jl interface** — Pipe directly to DataFrames: `get_prices("AAPL") |> DataFrame`
+- **Minimal dependencies** — Only JSON.jl and Tables.jl (+ stdlib)
+- **Rate-limit handling** — Automatic retry with exponential backoff
+- **Thread-safe** — Singleton session with `ReentrantLock`
 
 ## Installation
 
@@ -24,113 +34,179 @@ Pkg.add("YFinance")
 ## Quick Start
 
 ```julia
-using YFinance, DataFrames
+using YFinance
 
-# Get 1 month of daily prices
-get_prices("AAPL", range="1mo") |> YFinanceTable |> DataFrame
+# Stock prices (returns PriceData struct)
+prices = get_prices("AAPL", range="1mo")
+prices.close      # Vector{Float64}
+prices.timestamp  # Vector{DateTime}
 
-# Search for symbols
-search_symbols("microsoft")
-
-# Get fundamentals
-get_fundamentals("AAPL", "income_statement", "annual", "2020-01-01", "2024-01-01")
-
-# Options chain
-get_options("AAPL")
-
-# Quote summary
-data = get_quote_summary("AAPL")
-sector_industry(data)
-recommendation_trend(data)
+# Direct to DataFrame
+using DataFrames
+get_prices("AAPL", range="5d") |> DataFrame
 ```
 
 ## API Reference
 
-### Price Data
+### Prices
 
 ```julia
-get_prices(symbol; startdt, enddt, range, interval, autoadjust, exchange_local_time, divsplits, throw_error)
-get_dividends(symbol; startdt, enddt, throw_error)
-get_splits(symbol; startdt, enddt, throw_error)
+get_prices(symbol; range="5d", interval="1d", startdt="", enddt="",
+           prepost=false, autoadjust=true, divsplits=false,
+           exchange_local_time=false, timeout=10, throw_error=false)
 ```
 
-### Fundamental Data
+Returns `PriceData` with fields: `ticker`, `timestamp`, `open`, `high`, `low`, `close`, `adjclose`, `volume`, `dividend`, `split_ratio`.
 
 ```julia
-get_fundamentals(symbol, item, interval, startdt, enddt; throw_error)
-# item: "income_statement", "balance_sheet", "cash_flow", "valuation", or individual fields
-# interval: "annual", "quarterly", "monthly"
+# By range
+get_prices("MSFT", range="1y", interval="1d")
+
+# By date range
+get_prices("TSLA", startdt="2024-01-01", enddt="2024-06-01")
+
+# Intraday
+get_prices("NVDA", range="5d", interval="5m")
+
+# With dividends and splits
+get_prices("GOOGL", range="5y", divsplits=true, autoadjust=false)
+
+# Broadcasting
+get_prices.(["AAPL", "MSFT", "GOOGL"], range="1mo")
+```
+
+### Dividends & Splits
+
+```julia
+get_dividends(symbol; startdt="", enddt="")  # → DividendData
+get_splits(symbol; startdt="", enddt="")     # → SplitData
+```
+
+```julia
+divs = get_dividends("AAPL", startdt="2020-01-01", enddt="2024-01-01")
+divs.dividend   # Vector{Float64}
+divs |> DataFrame
+
+splits = get_splits("AAPL", startdt="2000-01-01")
+splits.ratio    # Vector{Float64}
 ```
 
 ### Options
 
 ```julia
-get_options(symbol; throw_error, expiration_date)
+get_options(symbol; throw_error=false, expdate=nothing)  # → OptionChain
+```
+
+```julia
+chain = get_options("AAPL")
+chain.calls   # Vector{OptionContract}
+chain.puts    # Vector{OptionContract}
+chain |> DataFrame  # All contracts as table
+```
+
+### Fundamentals
+
+```julia
+get_fundamentals(symbol, item, interval, startdt, enddt)  # → Dict{String,Vector}
+```
+
+```julia
+# Full income statement
+data = get_fundamentals("AAPL", "income_statement", "annual", "2020-01-01", "2024-01-01")
+
+# Single line item
+rev = get_fundamentals("AAPL", "TotalRevenue", "quarterly", "2022-01-01", "2024-01-01")
+
+# Available statements: "income_statement", "balance_sheet", "cash_flow", "valuation"
+# See all items: FUNDAMENTAL_TYPES
 ```
 
 ### Quote Summary
 
 ```julia
-get_quote_summary(symbol; item, throw_error)
+get_quote_summary(symbol; item=nothing)  # → Dict{String,Any}
+```
 
-# Accessor functions (work on the dict returned by get_quote_summary, or accept a symbol directly):
-calendar_events(data)
-earnings_estimates(data)
-earnings_per_share(data)
-insider_holders(data)
-insider_transactions(data)
-institutional_ownership(data)
-major_holders_breakdown(data)
-recommendation_trend(data)
-summary_detail(data)
-sector_industry(data)
-upgrade_downgrade_history(data)
+```julia
+qs = get_quote_summary("AAPL")
+
+# Accessor functions (accept Dict or String)
+calendar_events(qs)
+earnings_estimates(qs)
+earnings_per_share(qs)
+insider_holders(qs)
+insider_transactions(qs)
+institutional_ownership(qs)
+major_holders_breakdown(qs)
+recommendation_trend(qs)
+summary_detail(qs)
+sector_industry(qs)
+upgrade_downgrade_history(qs)
+
+# Or pass symbol directly
+sector_industry("AAPL")
 ```
 
 ### Search
 
 ```julia
-search_symbols(query)  # -> SearchResults
-search_news(query; lang)  # -> NewsResults
+search_symbols("microsoft")  # → SearchResults
+search_news("AAPL")          # → NewsResults
+```
+
+```julia
+results = search_symbols("tesla")
+results[1].symbol  # "TSLA"
+results[1].name    # "Tesla, Inc."
+
+news = search_news("AAPL")
+titles(news)       # Vector{String}
+links(news)        # Vector{String}
 ```
 
 ### Validation
 
 ```julia
-is_valid_symbol(symbol)  # -> Bool
-valid_symbols(symbols)   # -> filtered vector
+is_valid_symbol("AAPL")                    # true
+valid_symbols(["AAPL", "FAKE", "MSFT"])    # ["AAPL", "MSFT"]
 ```
 
-### Configuration
+### Proxy Configuration
 
 ```julia
-set_proxy!(url, user, password)
+set_proxy!("http://proxy.example.com:8080")
+set_proxy!("http://proxy.example.com:8080", "user", "password")
 clear_proxy!()
 ```
 
-### Tables.jl Integration
+## Return Types
 
-All `OrderedDict` results can be wrapped in `YFinanceTable` for Tables.jl compatibility:
+| Function | Return Type | Tables.jl |
+|----------|------------|-----------|
+| `get_prices` | `PriceData` | ✓ |
+| `get_dividends` | `DividendData` | ✓ |
+| `get_splits` | `SplitData` | ✓ |
+| `get_options` | `OptionChain` | ✓ |
+| `get_fundamentals` | `Dict{String,Vector}` | — |
+| `get_quote_summary` | `Dict{String,Any}` | — |
+| `search_symbols` | `SearchResults` | — |
+| `search_news` | `NewsResults` | — |
 
-```julia
-using DataFrames
-get_prices("AAPL", range="5d") |> YFinanceTable |> DataFrame
-get_fundamentals("AAPL", "TotalRevenue", "quarterly", "2020-01-01", "2024-01-01") |> YFinanceTable |> DataFrame
-```
+All Tables.jl-compatible types can be piped directly to `DataFrame`.
 
-### Constants
+## Design Decisions
 
-```julia
-QUOTE_SUMMARY_ITEMS    # Valid modules for get_quote_summary
-FUNDAMENTAL_TYPES      # Valid financial statement types and fields
-FUNDAMENTAL_INTERVALS  # Valid intervals: "annual", "quarterly", "monthly"
-```
+**Why typed structs instead of Dict?**
+- Type stability enables JIT optimization ([Julia Performance Tips](https://docs.julialang.org/en/v1/manual/performance-tips/))
+- IDE autocomplete on fields (`.close`, `.volume`, etc.)
+- Clear API contract — you know exactly what you'll get back
+- Still works with `|> DataFrame` via Tables.jl interface
 
-## Legal Disclaimer
+**Why Dict for fundamentals/quote summary?**
+- Schema is user-defined (300+ possible fields for fundamentals)
+- Each quote summary module has different structure
+- Dict is the natural representation for dynamic JSON data
 
-**Yahoo!, Y!Finance, and Yahoo! finance are registered trademarks of Yahoo, Inc.**
+## License
 
-YFinance.jl is not endorsed or affiliated with Yahoo, Inc. Data retrieved is for personal use only. See Yahoo's terms of use:
-
-- [Yahoo Developer API Terms of Use](https://policies.yahoo.com/us/en/yahoo/terms/product-atos/apiforydn/index.htm)
-- [Yahoo Terms of Service](https://legal.yahoo.com/us/en/yahoo/terms/otos/index.html)
+MIT

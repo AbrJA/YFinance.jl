@@ -119,9 +119,9 @@ mutable struct YahooSession
 end
 
 function YahooSession(;
-    min_request_interval::Float64=0.5,
-    max_retries::Int=5,
-    retry_base_delay::Float64=2.0
+    min_request_interval::Float64=0.3,
+    max_retries::Int=3,
+    retry_base_delay::Float64=1.5
 )
     return YahooSession(
         Dict{String,String}(),   # cookie
