@@ -59,9 +59,9 @@ mutable struct YahooSession
 end
 
 function YahooSession(;
-    min_request_interval::Float64=0.3,
-    max_retries::Int=3,
-    retry_base_delay::Float64=1.5
+    min_request_interval::Float64=0.5,
+    max_retries::Int=5,
+    retry_base_delay::Float64=2.0
 )
     return YahooSession(
         Dict{String,String}(), "", Dict{String,String}(),
@@ -90,6 +90,7 @@ function _ensure_session!()
             _SESSION.header = rand(HEADERS)
             _fetch_cookie!()
             _fetch_crumb!()
+            _SESSION.last_request_time = time()
             _SESSION.initialized = true
         end
     end
@@ -101,6 +102,7 @@ function _renew_session!()
         _SESSION.header = rand(HEADERS)
         _fetch_cookie!()
         _fetch_crumb!()
+        _SESSION.last_request_time = time()
         _SESSION.initialized = true
     end
     return nothing
@@ -108,14 +110,37 @@ end
 
 function _fetch_cookie!()
     headers = _build_headers(Dict{String,String}())
-    resp = _raw_request("https://fc.yahoo.com"; headers=headers, timeout=10, throw_on_error=false)
-    _SESSION.cookie = _parse_set_cookie(resp.headers)
+    for attempt in 1:_SESSION.max_retries
+        resp = _raw_request("https://fc.yahoo.com"; headers=headers, timeout=10, throw_on_error=false)
+        if resp.status < 400 || resp.status == 404  # fc.yahoo.com normally returns 404 with cookies
+            _SESSION.cookie = _parse_set_cookie(resp.headers)
+            return
+        elseif resp.status == 429
+            sleep(_SESSION.retry_base_delay * 2^(attempt - 1))
+        else
+            _SESSION.cookie = _parse_set_cookie(resp.headers)
+            return
+        end
+    end
+    _SESSION.cookie = Dict{String,String}()
 end
 
 function _fetch_crumb!()
+    sleep(_SESSION.min_request_interval)  # Throttle between cookie and crumb
     headers = _build_headers(_SESSION.cookie)
-    resp = _raw_request("$(_BASE_URL)/v1/test/getcrumb"; headers=headers, timeout=10, throw_on_error=false)
-    _SESSION.crumb = String(resp.body)
+    for attempt in 1:_SESSION.max_retries
+        resp = _raw_request("$(_BASE_URL)/v1/test/getcrumb"; headers=headers, timeout=10, throw_on_error=false)
+        if resp.status == 200
+            _SESSION.crumb = String(resp.body)
+            return
+        elseif resp.status == 429
+            sleep(_SESSION.retry_base_delay * 2^(attempt - 1))
+        else
+            break
+        end
+    end
+    _SESSION.crumb = ""
+    @warn "Crumb could not be retrieved. Certain data items will not be available!"
 end
 
 # ─── Header Building ─────────────────────────────────────────────────────────
@@ -210,6 +235,11 @@ function _yahoo_request(url::AbstractString, symbol::String; timeout::Int=10)
         elseif resp.status == 429
             delay = _SESSION.retry_base_delay * (2^(attempt - 1))
             sleep(delay)
+            # On last retry for 429, try renewing session
+            if attempt == _SESSION.max_retries - 1
+                _renew_session!()
+                headers = _build_headers(_SESSION.cookie)
+            end
         else
             throw(YFinanceError(symbol, "Request failed: HTTP $(resp.status)", resp.status))
         end

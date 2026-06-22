@@ -27,11 +27,8 @@ julia> chain.puts |> DataFrame
 """
 function options(symbol::String; expiration_date::Union{Date,Nothing}=nothing, timeout::Int=10)
     _ensure_session!()
-    if isempty(_SESSION.crumb)
-        throw(YFinanceError(symbol, "Could not retrieve crumb for options request", nothing))
-    end
 
-    symbol = _validated_symbol(symbol)
+    symbol = String(symbol)
 
     query_params = Dict("formatted" => "false", "crumb" => _SESSION.crumb)
     if !isnothing(expiration_date)

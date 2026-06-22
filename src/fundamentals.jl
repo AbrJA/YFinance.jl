@@ -27,7 +27,7 @@ julia> fundamentals("AAPL", "TotalRevenue", "quarterly", "2022-01-01", "2023-01-
 ```
 """
 function fundamentals(symbol::AbstractString, item::AbstractString, interval::AbstractString, startdt, enddt; timeout::Int=10)
-    symbol = _validated_symbol(symbol)
+    symbol = String(symbol)
 
     start_unix = _date_to_unix(startdt)
     end_unix = _date_to_unix(enddt)

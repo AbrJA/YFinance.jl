@@ -26,11 +26,8 @@ Dict{String, Any} with 13 entries...
 """
 function quote_summary(symbol::String; item=nothing, timeout::Int=10)
     _ensure_session!()
-    if isempty(_SESSION.crumb)
-        throw(YFinanceError(symbol, "Could not retrieve crumb for quote summary", nothing))
-    end
 
-    symbol = _validated_symbol(symbol)
+    symbol = String(symbol)
 
     if isnothing(item)
         item = QUOTE_SUMMARY_ITEMS

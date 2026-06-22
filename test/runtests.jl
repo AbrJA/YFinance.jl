@@ -1060,10 +1060,7 @@ using JSON
 
     # ═══════════════════════════════════════════════════════════════════════════
     # INTEGRATION TESTS — Require network access to Yahoo Finance
-    # Set YFINANCE_INTEGRATION=true to run these tests
     # ═══════════════════════════════════════════════════════════════════════════
-
-    if get(ENV, "YFINANCE_INTEGRATION", "false") == "true"
 
     @testset "Integration — Session & Validation" begin
         # Session initialization (cookie + crumb)
@@ -1348,12 +1345,5 @@ using JSON
         @test YFinance._SESSION.initialized
         @test !isempty(YFinance._SESSION.crumb)
     end
-
-    else
-        @testset "Integration — Skipped" begin
-            @info "Integration tests skipped. Set YFINANCE_INTEGRATION=true to run."
-            @test true  # Placeholder so test summary shows this section
-        end
-    end  # YFINANCE_INTEGRATION
 
 end
