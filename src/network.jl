@@ -287,6 +287,14 @@ function _raw_request(url::AbstractString;
         throw=false
     )
 
+    # Downloads.request with throw=false returns RequestError on connection failures
+    if resp isa Downloads.RequestError
+        if throw_on_error
+            throw(ResponseError(0, Vector{UInt8}(resp.message)))
+        end
+        return (status=0, body=Vector{UInt8}(resp.message), headers=Pair{String,String}[])
+    end
+
     body = take!(output)
     resp_status = resp.status
     resp_headers = Pair{String,String}[String(k) => String(v) for (k, v) in resp.headers]
