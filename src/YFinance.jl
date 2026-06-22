@@ -1,27 +1,24 @@
 module YFinance
 
     using Base64
-    using OrderedCollections
     using Dates
     using Downloads
     using JSON
     using Tables
 
+    # ─── Public API — Types ──────────────────────────────────────────────────
+    export PriceData, DividendData, SplitData
+    export OptionChain, OptionContract
+    export SearchResult, SearchResults
+    export NewsItem, NewsResults
+
     # ─── Public API — Data Retrieval ─────────────────────────────────────────
     export get_prices, get_dividends, get_splits
-    export get_options, get_fundamentals
+    export get_options
+    export get_fundamentals
     export get_quote_summary
     export search_symbols, search_news
     export is_valid_symbol, valid_symbols
-
-    # ─── Public API — Types ──────────────────────────────────────────────────
-    export SearchResult, SearchResults
-    export NewsItem, NewsResults
-    export YFinanceTable
-    export titles, links, timestamps
-
-    # ─── Public API — Configuration ──────────────────────────────────────────
-    export set_proxy!, clear_proxy!
 
     # ─── Public API — QuoteSummary Accessors ─────────────────────────────────
     export calendar_events, earnings_estimates, earnings_per_share
@@ -30,20 +27,27 @@ module YFinance
     export recommendation_trend, summary_detail
     export sector_industry, upgrade_downgrade_history
 
+    # ─── Public API — News Helpers ───────────────────────────────────────────
+    export titles, links, timestamps
+
+    # ─── Public API — Configuration ──────────────────────────────────────────
+    export set_proxy!, clear_proxy!
+
     # ─── Public API — Constants ──────────────────────────────────────────────
     export QUOTE_SUMMARY_ITEMS, FUNDAMENTAL_TYPES, FUNDAMENTAL_INTERVALS
 
-    # ─── Load Order ──────────────────────────────────────────────────────────
+    # ─── Source Files ────────────────────────────────────────────────────────
+    include("types.jl")
     include("headers.jl")
     include("network.jl")
-    include("Proxy_Auth.jl")
-    include("Validity.jl")
-    include("Prices.jl")
-    include("QuoteSummary.jl")
-    include("Fundamental.jl")
-    include("Options.jl")
-    include("Search_Symbol.jl")
-    include("News_Search.jl")
     include("tables.jl")
+    include("proxy.jl")
+    include("validate.jl")
+    include("prices.jl")
+    include("summary.jl")
+    include("fundamentals.jl")
+    include("options.jl")
+    include("search.jl")
+    include("news.jl")
 
 end

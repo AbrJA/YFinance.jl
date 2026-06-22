@@ -119,9 +119,9 @@ mutable struct YahooSession
 end
 
 function YahooSession(;
-    min_request_interval::Float64=0.3,
-    max_retries::Int=3,
-    retry_base_delay::Float64=1.5
+    min_request_interval::Float64=0.5,
+    max_retries::Int=5,
+    retry_base_delay::Float64=2.0
 )
     return YahooSession(
         Dict{String,String}(),   # cookie
@@ -285,14 +285,18 @@ function _raw_request(url::AbstractString;
     output = IOBuffer()
     downloader = _get_downloader()
 
-    resp = Downloads.request(url;
-        method="GET",
-        headers=headers,
-        output=output,
-        timeout=Float64(timeout),
-        downloader=downloader,
-        throw=false
+    kwargs = Dict{Symbol,Any}(
+        :method => "GET",
+        :headers => headers,
+        :output => output,
+        :timeout => Float64(timeout),
+        :downloader => downloader,
+        :throw => false,
     )
+    if !isnothing(_SESSION.proxy)
+        kwargs[:proxy] = _SESSION.proxy
+    end
+    resp = Downloads.request(url; kwargs...)
 
     # Downloads.request with throw=false returns RequestError on connection failures
     if resp isa Downloads.RequestError
@@ -344,8 +348,9 @@ function _request(url::AbstractString; timeout::Real=10, throw_on_error::Bool=tr
             end
 
             if e.status == 429
-                # Rate limited — exponential backoff
+                # Rate limited — exponential backoff + reset downloader
                 is_last && rethrow()
+                _SESSION.downloader = nothing  # Force new connection pool
                 sleep(_SESSION.retry_base_delay * 2^(attempt - 1))
                 continue
             elseif e.status in (401, 403)
