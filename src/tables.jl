@@ -10,10 +10,7 @@ Tables.columnaccess(::Type{PriceData}) = true
 Tables.columns(p::PriceData) = p
 
 function Tables.columnnames(p::PriceData)
-    cols = [:ticker, :timestamp, :open, :high, :low, :close, :adjclose, :volume]
-    isempty(p.dividend) || push!(cols, :dividend)
-    isempty(p.split_ratio) || push!(cols, :split_ratio)
-    return cols
+    return (:ticker, :timestamp, :open, :high, :low, :close, :adjclose, :volume, :dividend, :split_ratio)
 end
 
 function Tables.getcolumn(p::PriceData, nm::Symbol)
@@ -25,8 +22,8 @@ function Tables.getcolumn(p::PriceData, nm::Symbol)
     nm === :close && return p.close
     nm === :adjclose && return p.adjclose
     nm === :volume && return p.volume
-    nm === :dividend && return p.dividend
-    nm === :split_ratio && return p.split_ratio
+    nm === :dividend && return isempty(p.dividend) ? zeros(Float64, length(p)) : p.dividend
+    nm === :split_ratio && return isempty(p.split_ratio) ? ones(Float64, length(p)) : p.split_ratio
     throw(ArgumentError("Unknown column: $nm"))
 end
 
@@ -34,7 +31,7 @@ Tables.getcolumn(p::PriceData, i::Int) = Tables.getcolumn(p, Tables.columnnames(
 
 function Tables.schema(p::PriceData)
     names = Tables.columnnames(p)
-    types = [nm === :ticker ? String : nm === :timestamp ? DateTime : Float64 for nm in names]
+    types = (String, DateTime, Float64, Float64, Float64, Float64, Float64, Float64, Float64, Float64)
     return Tables.Schema(names, types)
 end
 

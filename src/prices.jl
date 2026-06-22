@@ -247,20 +247,21 @@ function _parse_prices(body::Vector{UInt8}, symbol::String, interval::String,
         div_v = zeros(Float64, length(idx))
         split_v = ones(Float64, length(idx))
 
+        # O(n) lookup via Dict instead of O(n²) nested loop
+        ts_index = Dict(ts[j] => j for j in eachindex(ts))
+
         if haskey(res["events"], "dividends")
             for v in values(res["events"]["dividends"])
                 dt = unix2datetime(v["date"] + offset)
-                for j in eachindex(ts)
-                    ts[j] == dt && (div_v[j] = v["amount"]; break)
-                end
+                j = get(ts_index, dt, 0)
+                j > 0 && (div_v[j] = v["amount"])
             end
         end
         if haskey(res["events"], "splits")
             for v in values(res["events"]["splits"])
                 dt = unix2datetime(v["date"] + offset)
-                for j in eachindex(ts)
-                    ts[j] == dt && (split_v[j] = v["numerator"] / v["denominator"]; break)
-                end
+                j = get(ts_index, dt, 0)
+                j > 0 && (split_v[j] = v["numerator"] / v["denominator"])
             end
         end
     elseif divsplits && interval != "1d"
@@ -300,17 +301,23 @@ function get_dividends(symbol::String;
     resp = _yahoo_get(url, symbol; timeout, throw_error)
     isnothing(resp) && return DividendData(symbol)
 
-    res = JSON.parse(String(copy(resp.body)))["chart"]["result"][1]
-    offset = exchange_local_time ? res["meta"]["gmtoffset"] : 0
-    result = DividendData(symbol)
+    try
+        res = JSON.parse(String(copy(resp.body)))["chart"]["result"][1]
+        offset = exchange_local_time ? res["meta"]["gmtoffset"] : 0
+        result = DividendData(symbol)
 
-    if haskey(res, "events") && haskey(res["events"], "dividends")
-        for v in values(res["events"]["dividends"])
-            push!(result.timestamp, unix2datetime(v["date"] + offset))
-            push!(result.dividend, Float64(v["amount"]))
+        if haskey(res, "events") && haskey(res["events"], "dividends")
+            for v in values(res["events"]["dividends"])
+                push!(result.timestamp, unix2datetime(v["date"] + offset))
+                push!(result.dividend, Float64(v["amount"]))
+            end
         end
+        return result
+    catch e
+        throw_error && rethrow()
+        @warn "Failed to parse dividend data for $symbol: $(sprint(showerror, e))"
+        return DividendData(symbol)
     end
-    return result
 end
 
 # ─── get_splits ───────────────────────────────────────────────────────────────
@@ -343,17 +350,23 @@ function get_splits(symbol::String;
     resp = _yahoo_get(url, symbol; timeout, throw_error)
     isnothing(resp) && return SplitData(symbol)
 
-    res = JSON.parse(String(copy(resp.body)))["chart"]["result"][1]
-    offset = exchange_local_time ? res["meta"]["gmtoffset"] : 0
-    result = SplitData(symbol)
+    try
+        res = JSON.parse(String(copy(resp.body)))["chart"]["result"][1]
+        offset = exchange_local_time ? res["meta"]["gmtoffset"] : 0
+        result = SplitData(symbol)
 
-    if haskey(res, "events") && haskey(res["events"], "splits")
-        for v in values(res["events"]["splits"])
-            push!(result.timestamp, unix2datetime(v["date"] + offset))
-            push!(result.numerator, Int(v["numerator"]))
-            push!(result.denominator, Int(v["denominator"]))
-            push!(result.ratio, v["numerator"] / v["denominator"])
+        if haskey(res, "events") && haskey(res["events"], "splits")
+            for v in values(res["events"]["splits"])
+                push!(result.timestamp, unix2datetime(v["date"] + offset))
+                push!(result.numerator, Int(v["numerator"]))
+                push!(result.denominator, Int(v["denominator"]))
+                push!(result.ratio, v["numerator"] / v["denominator"])
+            end
         end
+        return result
+    catch e
+        throw_error && rethrow()
+        @warn "Failed to parse split data for $symbol: $(sprint(showerror, e))"
+        return SplitData(symbol)
     end
-    return result
 end

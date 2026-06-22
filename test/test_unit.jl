@@ -111,7 +111,9 @@
         @test Tables.columnaccess(typeof(p))
         @test :open in Tables.columnnames(p)
         @test :adjclose in Tables.columnnames(p)
-        @test :dividend ∉ Tables.columnnames(p)  # empty → not included
+        @test :dividend in Tables.columnnames(p)  # always present (zeros when empty)
+        @test Tables.getcolumn(p, :dividend) == [0.0, 0.0]  # zeros for empty
+        @test Tables.getcolumn(p, :split_ratio) == [1.0, 1.0]  # ones for empty
         @test Tables.getcolumn(p, :ticker) == ["TEST", "TEST"]
         @test Tables.getcolumn(p, :open) == [100.0, 101.0]
         @test length(Tables.getcolumn(p, 1)) == 2  # ticker column by index
@@ -160,7 +162,7 @@
         set_proxy!("http://proxy.test:8080", "user", "pass")
         @test YFinance._SESSION.proxy == "http://proxy.test:8080"
         @test haskey(YFinance._SESSION.proxy_auth, "Proxy-Authorization")
-        expected_auth = "Basic " * base64encode("user:pass")
+        expected_auth = "Basic " * Base64.base64encode("user:pass")
         @test YFinance._SESSION.proxy_auth["Proxy-Authorization"] == expected_auth
 
         set_proxy!("http://open.test:3128")

@@ -1,3 +1,26 @@
+!!! info "v1.0.0"
+    ## Breaking Changes
+    * **Typed return structs** — `get_prices` now returns `PriceData`, `get_dividends` returns `DividendData`, `get_splits` returns `SplitData`, `get_options` returns `OptionChain`. These replace the old `OrderedDict` returns.
+    * **Removed `OrderedCollections.jl`** dependency entirely.
+    * **Renamed all source files** to lowercase Julia conventions.
+    * **Renamed functions**: `get_Options` → `get_options`, `get_Fundamental` → `get_fundamentals`, `get_quoteSummary` → `get_quote_summary`, `get_symbols` → `search_symbols`.
+    * **Renamed types**: `YahooSearch` → `SearchResults`, `YahooSearchItem` → `SearchResult`, `YahooNews` → `NewsResults`.
+    * **Accessor functions** no longer have `get_` prefix: `get_calendar_events` → `calendar_events`, etc.
+    * **Tables.jl interface** — all primary types (`PriceData`, `DividendData`, `SplitData`, `OptionChain`) are Tables.jl compatible. Use `|> DataFrame` directly.
+
+    ## New Features
+    * `Tables.jl` column-access protocol for zero-copy DataFrame conversion
+    * Stable schema — `dividend` and `split_ratio` columns always present in PriceData tables
+    * `search_news` and `search_symbols` now support `throw_error=false` (consistent with other functions)
+    * 100 browser profiles for header rotation (up from 5)
+    * JET.jl and Aqua.jl validation in test suite
+    * Comprehensive test coverage (196 tests)
+
+    ## Performance
+    * Type-stable struct returns enable JIT optimization
+    * O(1) dividend/split matching via Dict lookup (was O(n²))
+    * Connection pool reset on 429 to prevent cascading failures
+
 !!! info "v0.2.0"
     ## Breaking Changes
     * Replaced `HTTP.jl` with `Downloads.jl` (Julia stdlib). No more external HTTP dependency.

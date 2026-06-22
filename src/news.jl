@@ -13,13 +13,14 @@ const _NEWS_LANGS = Dict{String,Tuple{String,String}}(
 )
 
 """
-    search_news(query; lang="en-us") -> NewsResults
+    search_news(query; lang="en-us", throw_error=false) -> NewsResults
 
 Search for news articles related to a symbol or topic.
 
 # Arguments
 - `query::String` — Search term (ticker or keyword)
 - `lang::String` — Language/region code. Supported: $(join(sort(collect(keys(_NEWS_LANGS))), ", "))
+- `throw_error::Bool=false` — Throw on errors vs return empty NewsResults
 
 # Examples
 ```julia
@@ -28,7 +29,7 @@ titles(news)   # Vector of headline strings
 links(news)    # Vector of URLs
 ```
 """
-function search_news(query::String; lang::String="en-us")::NewsResults
+function search_news(query::String; lang::String="en-us", throw_error::Bool=false)::NewsResults
     haskey(_NEWS_LANGS, lang) || throw(ArgumentError(
         "Unsupported language '$lang'. Options: $(join(sort(collect(keys(_NEWS_LANGS))), ", "))"
     ))
@@ -36,7 +37,9 @@ function search_news(query::String; lang::String="en-us")::NewsResults
     lang_code, region = _NEWS_LANGS[lang]
     params = Dict("q" => query, "lang" => lang_code, "region" => region)
     url = _build_url("https://query2.finance.yahoo.com/v1/finance/search", params)
-    resp = _yahoo_get(url, query; timeout=10, throw_error=true)
+    resp = _yahoo_get(url, query; timeout=10, throw_error)
+    isnothing(resp) && return NewsResults(NewsItem[])
+
     parsed = JSON.parse(String(copy(resp.body)))
 
     items = NewsItem[]

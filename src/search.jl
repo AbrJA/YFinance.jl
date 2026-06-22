@@ -3,7 +3,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 """
-    search_symbols(query::String) -> SearchResults
+    search_symbols(query::String; throw_error=false) -> SearchResults
 
 Search for securities by name, ticker, or keyword.
 
@@ -14,9 +14,11 @@ results[1].symbol  # "MSFT"
 results[1].name    # "Microsoft Corporation"
 ```
 """
-function search_symbols(query::String)::SearchResults
+function search_symbols(query::String; throw_error::Bool=false)::SearchResults
     url = _build_url("https://query2.finance.yahoo.com/v1/finance/search", Dict("q" => query))
-    resp = _yahoo_get(url, query; timeout=10, throw_error=true)
+    resp = _yahoo_get(url, query; timeout=10, throw_error)
+    isnothing(resp) && return SearchResults(SearchResult[])
+
     parsed = JSON.parse(String(copy(resp.body)))
     quotes = get(parsed, "quotes", [])
 
