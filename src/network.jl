@@ -151,10 +151,12 @@ Returns the persistent Downloader instance (connection pool).
 Creates one on first use.
 """
 function _get_downloader()::Downloads.Downloader
-    if isnothing(_SESSION.downloader)
-        _SESSION.downloader = Downloads.Downloader()
+    dl = _SESSION.downloader
+    if isnothing(dl)
+        dl = Downloads.Downloader()
+        _SESSION.downloader = dl
     end
-    return _SESSION.downloader
+    return dl
 end
 
 # ─── Session Management ───────────────────────────────────────────────────────

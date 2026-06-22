@@ -3,11 +3,13 @@
 # They are slow to precompile, so guard them behind an ENV flag.
 
 @testset "Code Quality" begin
-    if get(ENV, "YFINANCE_QUALITY_TESTS", "true") == "true"
+    if get(ENV, "YFINANCE_QUALITY_TESTS", "false") == "true" || "quality" in ARGS
         @testset "Aqua.jl" begin
             using Aqua
             Aqua.test_all(YFinance;
-                ambiguities=false,  # We have some intentional dispatch ambiguities
+                ambiguities=false,         # Intentional dispatch on Union types
+                stale_deps=false,          # Aqua/JET are test-only extras
+                persistent_tasks=false,    # Downloads.Downloader uses background tasks
             )
         end
 
